@@ -1,17 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { createAdapter, demoEndpoints } from "../src/lib/adapters/platforms";
+import { defaultConfigs } from "../src/lib/config";
+import { createAdapter, ctraderEndpoints, integrationPolicy } from "../src/lib/adapters/platforms";
 
-describe("platform adapters", () => {
-  it.each(["deriv", "capital", "ctrader", "oanda"] as const)("defaults %s to paper mode", async (platform) => {
-    const adapter = createAdapter(platform);
+describe("cTrader adapter boundary", () => {
+  it.each(defaultConfigs)("defaults $name to cTrader paper mode", async (config) => {
+    const adapter = createAdapter(config.id);
     expect(adapter.environment).toBe("paper");
-    expect(adapter.platform).toBe(platform);
-    await expect(adapter.getTick("TEST")).rejects.toThrow("desconectado");
+    expect(adapter.platform).toBe("ctrader");
+    await expect(adapter.getTick("EURUSD")).rejects.toThrow("desconectado");
   });
 
-  it("contains demo endpoints only", () => {
-    expect(demoEndpoints.capital).toContain("demo");
-    expect(demoEndpoints.ctrader).toContain("demo");
-    expect(demoEndpoints.oanda).toContain("practice");
+  it("keeps demo and live on separate official endpoints", () => {
+    expect(ctraderEndpoints.demo).toContain("demo.ctraderapi.com");
+    expect(ctraderEndpoints.live).toContain("live.ctraderapi.com");
+    expect(integrationPolicy.secretsInBrowser).toBe(false);
+  });
+
+  it("blocks external modes before the secure bridge is ready", () => {
+    expect(() => createAdapter("microflow", "demo")).toThrow("bloqueado");
+    expect(() => createAdapter("microflow", "live")).toThrow("bloqueado");
   });
 });

@@ -72,7 +72,8 @@ export function generateSignal(config: BotConfig, ticks: Tick[]): Signal | null 
   const recent = d.moves.slice(-4);
   const resumed = Math.sign(recent.at(-1) ?? 0) === Math.sign(trend);
   const pullbackMoves = recent.slice(0, -1).filter((move) => Math.sign(move) === -Math.sign(trend)).length;
+  const pullbackDepthPips = -recent.slice(0, -1).reduce((sum, move) => sum + move, 0) * Math.sign(trend) / pip;
   const trendStrength = Math.abs(trend) / Math.max(stdev(d.prices), pip / 10);
-  if (!resumed || pullbackMoves < 2 || d.efficiency < 0.35 || trendStrength < config.strategy.threshold) return null;
+  if (!resumed || pullbackMoves < 2 || pullbackDepthPips < 1.2 || d.efficiency < 0.25 || Math.sign(d.displacement) !== Math.sign(trend) || trendStrength < config.strategy.threshold) return null;
   return { side: trend > 0 ? "buy" : "sell", confidence: Math.min(0.99, trendStrength), reason: "Retomada após retração em tendência curta confirmada" };
 }

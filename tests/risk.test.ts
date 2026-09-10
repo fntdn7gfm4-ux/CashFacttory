@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { defaultConfigs } from "../src/lib/config";
-import { assessRisk } from "../src/lib/risk";
+import { assessRisk, positionSize } from "../src/lib/risk";
 import { initialRuntime } from "../src/lib/simulator";
 
 describe("risk engine", () => {
@@ -10,14 +10,15 @@ describe("risk engine", () => {
     expect(assessRisk(config, runtime).reason).toBe("Stop diário atingido");
   });
 
-  it("blocks oversized stake", () => {
-    const config = { ...defaultConfigs[1], risk: { ...defaultConfigs[1].risk, stake: 20, maxStake: 5 } };
+  it("blocks risk above the configured ceiling", () => {
+    const config = { ...defaultConfigs[1], risk: { ...defaultConfigs[1].risk, riskPerTrade: 2, maxRiskPerTrade: 1 } };
     expect(assessRisk(config, initialRuntime(config)).allowed).toBe(false);
   });
 
-  it("enforces cooldown", () => {
+  it("enforces cooldown and sizes from stop distance", () => {
     const config = defaultConfigs[2];
     const runtime = { ...initialRuntime(config), lastTradeAt: Date.now() };
     expect(assessRisk(config, runtime).reason).toBe("Cooldown ativo");
+    expect(positionSize(config, 1000)).toBeCloseTo(config.risk.riskPerTrade / config.strategy.stopLossPips, 3);
   });
 });

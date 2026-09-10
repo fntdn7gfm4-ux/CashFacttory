@@ -16,7 +16,7 @@ export function makeSyntheticTicks(count = 900, initialSeed = 7411, regime: Mark
     if (regime === "trend") movement += trendDirection * 0.000055;
     if (regime === "mean-reversion") movement += (anchor - price) * 0.11;
     if (regime === "compression-breakout") movement = random * (cycle < 125 ? 0.00010 : 0.00042) + (cycle >= 125 ? trendDirection * 0.00007 : 0);
-    if (regime === "trend-pullback") movement += trendDirection * 0.000048 + (cycle % 24 >= 17 && cycle % 24 <= 20 ? -trendDirection * 0.00011 : 0);
+    if (regime === "trend-pullback") movement = random * 0.00018 + trendDirection * 0.000052 + (cycle % 24 >= 17 && cycle % 24 <= 20 ? -trendDirection * 0.00012 : 0);
     price += movement;
     const spreadPips = 0.55 + Math.abs(random) * 0.5;
     const halfSpread = spreadPips * 0.0001 / 2;

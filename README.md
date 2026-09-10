@@ -1,20 +1,26 @@
-# CashFacttory
+# CashFacttory · cTrader Strategy Lab
 
-Painel multi-plataforma para experimentar estratégias de micronegociação com **PAPER MODE obrigatório por padrão**. O projeto não cria contas, não aceita termos por você e não envia ordens com dinheiro real.
+Painel com quatro robôs independentes, todos preparados para o **cTrader Open API**. O modo executável atual é PAPER local. Demo e real aparecem no fluxo, mas permanecem tecnicamente bloqueados enquanto a aplicação estiver aguardando aprovação e até a integração OAuth passar pelos testes de segurança.
 
-## O que está pronto
+## Quatro estratégias
 
-- Dashboard geral e áreas independentes para Deriv, Capital.com, cTrader e OANDA.
-- Simulação contínua no navegador com saldo, P&L, win rate, drawdown, ordens, logs e gráfico de ticks.
-- Estratégia Deriv de par/ímpar baseada no último dígito, com filtro conservador que evita operar sem viés estatístico forte.
-- Equivalentes tecnicamente honestos para os outros mercados:
-  - Capital.com: reversão curta após desequilíbrio direcional.
-  - cTrader: momentum de microestrutura confirmado por ticks.
-  - OANDA: retorno à média após deslocamento curto normalizado.
-- Motor de risco compartilhado: stop diário, drawdown máximo, cooldown, stake e limite de operações simultâneas.
-- Parada de emergência para todos os robôs.
-- Backtest determinístico sobre ticks sintéticos e configurações persistidas em `localStorage`.
-- Adapters separados com fronteira pronta para integrações demo oficiais.
+1. **Microflow Momentum** — configuração do antigo cTrader Microflow preservada: EURUSD, janela de 16 ticks, limiar 0,66 e saída em 5 ticks.
+2. **Range Scout** — retorno à média por z-score, somente com baixa eficiência direcional e spread aceitável.
+3. **Squeeze Breakout** — rompimento de faixa depois de compressão e expansão mensurável da volatilidade.
+4. **Trend Pullback** — retomada de tendência curta depois de uma retração confirmada.
+
+Todos os robôs incluem spread máximo, volatilidade mínima, stop loss, take profit, limite de risco por operação, stop diário, drawdown máximo, cooldown e limite de simultaneidade. O backtest desconta spread, slippage e custo fixo simulado.
+
+## Segurança de execução
+
+- PAPER local é o padrão e não requer credenciais.
+- Demo exige aplicativo aprovado, OAuth e conta demo do próprio usuário.
+- Real exige, além disso, validação completa em demo e desbloqueio explícito separado.
+- Client Secret e tokens não entram no navegador, no GitHub, em logs ou em variáveis `NEXT_PUBLIC_*`.
+- Os quatro robôs usam uma única fronteira de integração em `src/lib/adapters/`.
+- A parada de emergência interrompe todos os loops locais imediatamente.
+
+O painel não finge conexão externa: enquanto o executor seguro não estiver configurado, os botões cTrader Demo e cTrader Real apenas mostram as etapas pendentes.
 
 ## Executar
 
@@ -25,79 +31,31 @@ npm install
 npm run dev
 ```
 
-Abra `http://localhost:3000`.
-
-Validação completa:
+Validação:
 
 ```bash
 npm test
 npm run build
 ```
 
-## Arquitetura
+## Integração cTrader depois da aprovação
 
-```text
-app/                 interface exportável como site estático
-src/
-  components/        dashboard e visualizações
-  lib/adapters/      contrato comum + adapters paper por plataforma
-  lib/strategy.ts    gerador de sinais por mercado
-  lib/risk.ts        guardrails anteriores a cada ordem
-  lib/backtest.ts    simulador determinístico
-tests/               estratégia, risco, adapters e backtest
-```
+1. Autorizar a conta demo pelo fluxo OAuth 2.0 oficial.
+2. Trocar o código de autorização, que expira rapidamente, por access/refresh tokens no servidor.
+3. Autenticar a aplicação e a conta no endpoint demo.
+4. Consultar o símbolo no broker para respeitar `minVolume`, `maxVolume`, `stepVolume`, comissão e horários.
+5. Validar feed bid/ask, ordens, fills parciais, reconciliação, SL/TP, heartbeat e parada de emergência.
+6. Executar testes prolongados em demo. O modo real só é liberado por uma ação explícita posterior.
 
-## Integrações demo oficiais
-
-Copie `.env.example` para `.env.local` somente quando você próprio tiver criado as credenciais. Tokens devem existir apenas no servidor; nunca use variáveis `NEXT_PUBLIC_*` para segredos.
-
-### Deriv
-
-Use uma conta virtual e um App ID. A API WebSocket oficial expõe ticks, propostas e compra de contratos. A paridade `DIGITEVEN`/`DIGITODD` é um produto real da Deriv, portanto a estratégia mantém esse significado no adapter dedicado.
-
-- [Documentação da API Deriv](https://developers.deriv.com/)
-- Endpoint preparado: `wss://ws.derivws.com/websockets/v3`
-
-### Capital.com
-
-Crie uma API key dentro de uma conta demo já pertencente a você. A sessão usa credenciais e retorna tokens `CST`/`X-SECURITY-TOKEN`; preços em streaming usam o canal documentado pela plataforma.
-
-- [Capital.com Open API](https://open-api.capital.com/)
-- Endpoint preparado: `https://demo-api-capital.backend-capital.com`
-
-### cTrader
-
-O Open API exige um cTrader ID, registro/aprovação de aplicativo e OAuth 2.0. Demo e live usam endpoints separados. O projeto aponta apenas ao endpoint demo JSON/WebSocket.
+Documentação oficial:
 
 - [cTrader Open API](https://help.ctrader.com/open-api/)
-- Endpoint preparado: `wss://demo.ctraderapi.com:5036`
+- [Autenticação de aplicativo e conta](https://help.ctrader.com/open-api/account-authentication/)
+- [Dados de símbolos, ticks, bid/ask e trendbars](https://help.ctrader.com/open-api/symbol-data/)
+- [Proxies e endpoints demo/live](https://help.ctrader.com/open-api/proxies-endpoints/)
 
-### OANDA
+## Limitação importante
 
-Use uma conta v20 de prática e gere um personal access token no perfil. O token funciona como senha e nunca deve ser versionado.
+O objetivo de obter resultados pequenos e rápidos aumenta a sensibilidade a spread, slippage, comissão e latência. Nenhum resultado simulado representa promessa ou previsão de rentabilidade. Forex alavancado e CFDs são produtos de alto risco.
 
-- [OANDA v20 API](https://developer.oanda.com/rest-live-v20/introduction/)
-- Endpoint preparado: `https://api-fxpractice.oanda.com`
-
-## Política de segurança
-
-1. `TRADING_MODE=paper` é o único modo implementado.
-2. Não há endpoint live nem caminho de UI para habilitá-lo.
-3. Credenciais não são necessárias para executar todos os recursos atuais.
-4. Cada ordem passa pelo motor de risco antes da simulação.
-5. A parada de emergência interrompe todos os loops de execução.
-
-Resultados simulados e backtests não representam performance futura. CFDs, forex e derivativos alavancados envolvem risco elevado.
-
-## Validação de estratégia
-
-O laboratório automatizado executa 20 amostras independentes de 1.200 ticks por regime e desconta custo simulado de execução. Os filtros atuais foram reconstruídos após a primeira rodada revelar perdas fora do regime adequado.
-
-| Robô | Regime compatível | P&L médio por amostra | Win rate agregado | Trades médios |
-| --- | --- | ---: | ---: | ---: |
-| Deriv | Dígitos aleatórios | -$0,13 | 40,00% | 0,3 |
-| Capital | Retorno à média | +$46,64 | 57,57% | 33,4 |
-| cTrader | Tendência | +$112,17 | 77,13% | 25,8 |
-| OANDA | Retorno à média | +$40,86 | 58,03% | 37,6 |
-
-A Deriv fica praticamente sem operar quando os dígitos são aleatórios: isso é intencional, pois o filtro não presume uma vantagem inexistente. Em regimes incompatíveis, Capital e os filtros revisados tiveram baixa atividade; cTrader e OANDA ainda podem registrar pequenas perdas residuais, portanto continuam exclusivamente em paper trading.
+Veja a análise completa em [`docs/strategy-research.md`](docs/strategy-research.md).

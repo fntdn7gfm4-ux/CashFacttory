@@ -38,6 +38,6 @@ export const defaultConfigs: BotConfig[] = [
     description: "Entrada na retomada de uma tendência curta após uma retração controlada.",
     hypothesis: "Combina inclinação rápida/lenta, eficiência de trajetória e retomada no último tick.", balance: 1000,
     risk: { ...risk, cooldownSeconds: 60 },
-    strategy: { kind: "pullback", symbol: "EURUSD", tickWindow: 32, threshold: 0.58, holdTicks: 7, maxSpreadPips: 1.1, stopLossPips: 2.5, takeProfitPips: 3.1, minimumVolatilityPips: 1.0 }
+    strategy: { kind: "pullback", symbol: "EURUSD", tickWindow: 32, threshold: 0.40, holdTicks: 4, maxSpreadPips: 1.0, stopLossPips: 2.2, takeProfitPips: 2.6, minimumVolatilityPips: 1.0 }
   }
 ];
