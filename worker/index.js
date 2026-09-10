@@ -64,8 +64,9 @@ async function session(request, env) {
 
   try {
     const rows = await accounts(env);
-    const account = rows.find((row) => row.account_type === mode && row.status === "active");
-    if (!account) return json({ error: `Conta ${mode} ativa não encontrada` }, 404);
+    const targetType = mode === "live" ? "real" : "demo";
+    const account = rows.find((row) => String(row.account_type).toLowerCase() === targetType);
+    if (!account) return json({ error: `Conta ${mode} não encontrada` }, 404);
     const response = await fetch(`${API_BASE}/trading/v1/options/accounts/${encodeURIComponent(account.account_id)}/otp`, {
       method: "POST",
       headers: headers(env),
