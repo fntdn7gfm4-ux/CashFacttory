@@ -6,6 +6,7 @@ import { defaultConfigs, platformMeta } from "@/lib/config";
 import { initialRuntime, simulateStep } from "@/lib/simulator";
 import { BacktestResult, BotConfig, BotRuntime, Platform } from "@/lib/types";
 import { Sparkline } from "./Sparkline";
+import { runBacktest } from "@/lib/backtest";
 
 type View = "overview" | Platform;
 const storageKey = "cashfacttory:configs:v1";
@@ -60,7 +61,13 @@ export function TradingDashboard() {
   const emergency = () => setRuntimes((all) => Object.fromEntries(Object.entries(all).map(([key, runtime]) => [key, { ...runtime, status: "stopped", logs: [`${new Date().toLocaleTimeString("pt-BR")} · PARADA DE EMERGÊNCIA acionada.`, ...runtime.logs] }])) as Record<Platform, BotRuntime>);
   const save = () => { localStorage.setItem(storageKey, JSON.stringify(configs)); };
   const updateConfig = (platform: Platform, path: "risk" | "strategy", field: string, value: string | number) => setConfigs((items) => items.map((item) => item.platform === platform ? { ...item, [path]: { ...item[path], [field]: value } } : item));
-  const runTest = async (config: BotConfig) => { setTesting(true); setBacktest(null); try { const response = await fetch("/api/backtest", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(config) }); setBacktest(await response.json()); } finally { setTesting(false); } };
+  const runTest = async (config: BotConfig) => {
+    setTesting(true);
+    setBacktest(null);
+    await new Promise((resolve) => window.setTimeout(resolve, 120));
+    setBacktest(runBacktest(config));
+    setTesting(false);
+  };
 
   const selected = view === "overview" ? null : configs.find((c) => c.platform === view)!;
   const runtime = selected ? runtimes[selected.platform] : null;

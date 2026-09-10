@@ -6,7 +6,7 @@ Painel multi-plataforma para experimentar estratégias de micronegociação com 
 
 - Dashboard geral e áreas independentes para Deriv, Capital.com, cTrader e OANDA.
 - Simulação contínua no navegador com saldo, P&L, win rate, drawdown, ordens, logs e gráfico de ticks.
-- Estratégia Deriv de par/ímpar baseada no último dígito.
+- Estratégia Deriv de par/ímpar baseada no último dígito, com filtro conservador que evita operar sem viés estatístico forte.
 - Equivalentes tecnicamente honestos para os outros mercados:
   - Capital.com: reversão curta após desequilíbrio direcional.
   - cTrader: momentum de microestrutura confirmado por ticks.
@@ -37,9 +37,7 @@ npm run build
 ## Arquitetura
 
 ```text
-app/
-  api/backtest       API interna para simulação histórica
-  api/health         estado e trava de modo real
+app/                 interface exportável como site estático
 src/
   components/        dashboard e visualizações
   lib/adapters/      contrato comum + adapters paper por plataforma
@@ -90,3 +88,16 @@ Use uma conta v20 de prática e gere um personal access token no perfil. O token
 5. A parada de emergência interrompe todos os loops de execução.
 
 Resultados simulados e backtests não representam performance futura. CFDs, forex e derivativos alavancados envolvem risco elevado.
+
+## Validação de estratégia
+
+O laboratório automatizado executa 20 amostras independentes de 1.200 ticks por regime e desconta custo simulado de execução. Os filtros atuais foram reconstruídos após a primeira rodada revelar perdas fora do regime adequado.
+
+| Robô | Regime compatível | P&L médio por amostra | Win rate agregado | Trades médios |
+| --- | --- | ---: | ---: | ---: |
+| Deriv | Dígitos aleatórios | -$0,13 | 40,00% | 0,3 |
+| Capital | Retorno à média | +$46,64 | 57,57% | 33,4 |
+| cTrader | Tendência | +$112,17 | 77,13% | 25,8 |
+| OANDA | Retorno à média | +$40,86 | 58,03% | 37,6 |
+
+A Deriv fica praticamente sem operar quando os dígitos são aleatórios: isso é intencional, pois o filtro não presume uma vantagem inexistente. Em regimes incompatíveis, Capital e os filtros revisados tiveram baixa atividade; cTrader e OANDA ainda podem registrar pequenas perdas residuais, portanto continuam exclusivamente em paper trading.

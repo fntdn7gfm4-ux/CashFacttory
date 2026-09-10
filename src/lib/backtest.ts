@@ -1,9 +1,9 @@
 import { BacktestResult, BotConfig, Tick } from "./types";
 import { generateSignal } from "./strategy";
 
-export function makeSyntheticTicks(count = 500, start = 1.085, volatility = 0.0012): Tick[] {
+export function makeSyntheticTicks(count = 500, start = 1.085, volatility = 0.0012, initialSeed = 7411): Tick[] {
   let price = start;
-  let seed = 7411;
+  let seed = initialSeed;
   return Array.from({ length: count }, (_, index) => {
     seed = (seed * 16807) % 2147483647;
     price += ((seed / 2147483647) - 0.5) * volatility;
@@ -11,7 +11,7 @@ export function makeSyntheticTicks(count = 500, start = 1.085, volatility = 0.00
   });
 }
 
-export function runBacktest(config: BotConfig, suppliedTicks?: Tick[]): BacktestResult {
+export function runBacktest(config: BotConfig, suppliedTicks?: Tick[], costPerUnit = 0.12): BacktestResult {
   const ticks = suppliedTicks ?? (config.platform === "deriv" ? makeSyntheticTicks(500, 512.4, 0.42) : makeSyntheticTicks());
   let balance = 10000;
   let peak = balance;
@@ -29,7 +29,8 @@ export function runBacktest(config: BotConfig, suppliedTicks?: Tick[]): Backtest
     const movement = config.platform === "deriv"
       ? ((Math.abs(Math.round(exit * 100)) % 2 === (config.strategy.parity === "even" ? 0 : 1)) ? 0.85 : -1)
       : direction * (exit - entry) * 10000;
-    const pnl = Number((movement * config.risk.stake).toFixed(2));
+    const executionCost = config.platform === "deriv" ? 0 : costPerUnit * config.risk.stake;
+    const pnl = Number((movement * config.risk.stake - executionCost).toFixed(2));
     balance += pnl;
     if (pnl >= 0) wins++; else losses++;
     peak = Math.max(peak, balance);

@@ -21,16 +21,27 @@ export function generateSignal(config: BotConfig, ticks: Tick[]): Signal | null 
   const first = window[0].price;
   const last = window.at(-1)!.price;
   const displacement = (last - first) / first;
+  const pathLength = moves.reduce((sum, move) => sum + Math.abs(move), 0);
+  const efficiency = pathLength ? Math.abs(last - first) / pathLength : 0;
+  const lagProduct = moves.slice(1).reduce((sum, move, index) => sum + move * moves[index], 0);
+  const moveEnergy = moves.reduce((sum, move) => sum + move * move, 0);
+  const serialCorrelation = moveEnergy ? lagProduct / moveEnergy : 0;
+  const regimeWindow = ticks.slice(-config.strategy.tickWindow * 3);
+  const regimeMoves = regimeWindow.slice(1).map((tick, index) => tick.price - regimeWindow[index].price);
+  const regimePath = regimeMoves.reduce((sum, move) => sum + Math.abs(move), 0);
+  const regimeEfficiency = regimePath && regimeWindow.length > 1
+    ? Math.abs(regimeWindow.at(-1)!.price - regimeWindow[0].price) / regimePath
+    : 1;
 
-  if (config.platform === "capital" && Math.max(upRatio, 1 - upRatio) >= config.strategy.threshold) {
-    return { side: upRatio > 0.5 ? "sell" : "buy", confidence: Math.max(upRatio, 1 - upRatio), reason: "Reversão após desequilíbrio direcional" };
+  if (config.platform === "capital" && Math.max(upRatio, 1 - upRatio) >= config.strategy.threshold && efficiency < 0.24) {
+    return { side: upRatio > 0.5 ? "sell" : "buy", confidence: Math.max(upRatio, 1 - upRatio), reason: "Reversão em regime lateral confirmado" };
   }
-  if (config.platform === "ctrader" && Math.max(upRatio, 1 - upRatio) >= config.strategy.threshold) {
-    return { side: upRatio > 0.5 ? "buy" : "sell", confidence: Math.max(upRatio, 1 - upRatio), reason: "Momentum confirmado por sequência de ticks" };
+  if (config.platform === "ctrader" && Math.max(upRatio, 1 - upRatio) >= config.strategy.threshold && efficiency > 0.70) {
+    return { side: upRatio > 0.5 ? "buy" : "sell", confidence: Math.max(upRatio, 1 - upRatio), reason: "Momentum confirmado por sequência eficiente" };
   }
   const normalized = Math.abs(displacement) * 10000;
-  if (config.platform === "oanda" && normalized >= config.strategy.threshold) {
-    return { side: displacement > 0 ? "sell" : "buy", confidence: Math.min(0.99, normalized), reason: "Retorno à média após deslocamento normalizado" };
+  if (config.platform === "oanda" && regimeWindow.length === config.strategy.tickWindow * 3 && normalized >= config.strategy.threshold && efficiency < 0.22 && regimeEfficiency < 0.20 && serialCorrelation < -0.15) {
+    return { side: displacement > 0 ? "sell" : "buy", confidence: Math.min(0.99, normalized), reason: "Retorno à média em regime lateral" };
   }
   return null;
 }

@@ -20,15 +20,15 @@ export const defaultConfigs: BotConfig[] = [
   {
     platform: "deriv",
     name: "Deriv Digits",
-    description: "Paridade real do último dígito em ticks sintéticos.",
+    description: "Referência par/ímpar conservadora; só atua sob viés estatístico forte.",
     balance: 10000,
     risk: { ...risk },
-    strategy: { symbol: "R_100", tickWindow: 12, threshold: 0.6, holdTicks: 1, parity: "even" }
+    strategy: { symbol: "R_100", tickWindow: 40, threshold: 0.75, holdTicks: 1, parity: "even" }
   },
   {
     platform: "capital",
     name: "Capital Pulse",
-    description: "Reversão curta após desequilíbrio direcional de ticks.",
+    description: "Reversão curta com filtro para excluir tendências persistentes.",
     balance: 10000,
     risk: { ...risk },
     strategy: { symbol: "EURUSD", tickWindow: 18, threshold: 0.64, holdTicks: 4, parity: "even" }
@@ -36,7 +36,7 @@ export const defaultConfigs: BotConfig[] = [
   {
     platform: "ctrader",
     name: "cTrader Microflow",
-    description: "Momentum de microestrutura com confirmação por janela.",
+    description: "Momentum de microestrutura apenas em movimentos eficientes.",
     balance: 10000,
     risk: { ...risk },
     strategy: { symbol: "EURUSD", tickWindow: 16, threshold: 0.66, holdTicks: 5, parity: "even" }
@@ -44,7 +44,7 @@ export const defaultConfigs: BotConfig[] = [
   {
     platform: "oanda",
     name: "OANDA Tick Edge",
-    description: "Retorno à média em deslocamentos curtos normalizados.",
+    description: "Retorno à média com detecção de regime lateral.",
     balance: 10000,
     risk: { ...risk },
     strategy: { symbol: "EUR_USD", tickWindow: 20, threshold: 0.68, holdTicks: 6, parity: "even" }
