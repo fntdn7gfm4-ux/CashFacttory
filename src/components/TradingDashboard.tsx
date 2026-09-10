@@ -10,7 +10,7 @@ import { runBacktest } from "@/lib/backtest";
 import { positionSize } from "@/lib/risk";
 
 type View = "overview" | "connection" | "research" | BotId;
-const storageKey = "cashfacttory:deriv-direct-configs:v5";
+const storageKey = "cashfacttory:deriv-direct-configs:v6";
 const money = (value: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "USD" }).format(value);
 const pct = (value: number) => `${value.toFixed(1)}%`;
 const modeLabels: Record<TradingMode, string> = { paper: "PAPER LOCAL", demo: "DERIV DEMO", live: "DERIV REAL" };
