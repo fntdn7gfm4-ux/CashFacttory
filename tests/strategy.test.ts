@@ -8,7 +8,7 @@ const ticks = (prices: number[]): Tick[] => prices.map((price, time) => ({ price
 describe("Deriv direct strategy signals", () => {
   it("preserves the original Microflow settings and detects efficient momentum", () => {
     const config = { ...defaultConfigs[0], strategy: { ...defaultConfigs[0].strategy, minimumVolatilityPips: 0 } };
-    expect(config.strategy).toMatchObject({ symbol: "frxEURUSD", tickWindow: 16, threshold: 0.66, holdTicks: 5 });
+    expect(config.strategy).toMatchObject({ symbol: "1HZ100V", tickWindow: 16, threshold: 0.66, holdTicks: 5 });
     const prices = Array.from({ length: 16 }, (_, index) => 1.08 + index * 0.0001 + (index % 3) * 0.00001);
     expect(generateSignal(config, ticks(prices))?.side).toBe("buy");
   });
