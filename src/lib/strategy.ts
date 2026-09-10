@@ -1,47 +1,78 @@
 import { BotConfig, Signal, Tick } from "./types";
 
+const pip = 0.0001;
+const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1);
+const stdev = (values: number[]) => {
+  const average = mean(values);
+  return Math.sqrt(mean(values.map((value) => (value - average) ** 2)));
+};
+const ema = (values: number[], period: number) => {
+  const alpha = 2 / (period + 1);
+  return values.slice(1).reduce((value, next) => next * alpha + value * (1 - alpha), values[0]);
+};
+
+function diagnostics(ticks: Tick[]) {
+  const prices = ticks.map((tick) => tick.price);
+  const moves = prices.slice(1).map((price, index) => price - prices[index]);
+  const path = moves.reduce((sum, move) => sum + Math.abs(move), 0);
+  const displacement = prices.at(-1)! - prices[0];
+  const efficiency = path ? Math.abs(displacement) / path : 0;
+  const directionRatio = Math.max(
+    moves.filter((move) => move > 0).length,
+    moves.filter((move) => move < 0).length
+  ) / Math.max(moves.length, 1);
+  const energy = moves.reduce((sum, move) => sum + move * move, 0);
+  const lagProduct = moves.slice(1).reduce((sum, move, index) => sum + move * moves[index], 0);
+  return { prices, moves, displacement, efficiency, directionRatio, serialCorrelation: energy ? lagProduct / energy : 0, volatilityPips: stdev(moves) / pip };
+}
+
 export function generateSignal(config: BotConfig, ticks: Tick[]): Signal | null {
   const window = ticks.slice(-config.strategy.tickWindow);
   if (window.length < config.strategy.tickWindow) return null;
+  const last = window.at(-1)!;
+  const spreadPips = last.bid !== undefined && last.ask !== undefined ? (last.ask - last.bid) / pip : 0.8;
+  if (spreadPips > config.strategy.maxSpreadPips) return null;
 
-  if (config.platform === "deriv") {
-    const desired = config.strategy.parity === "even" ? 0 : 1;
-    const matches = window.filter((tick) => Math.abs(Math.round(tick.price * 100)) % 2 === desired).length;
-    const ratio = matches / window.length;
-    if (ratio < config.strategy.threshold) return null;
-    return {
-      side: config.strategy.parity === "even" ? "buy" : "sell",
-      confidence: ratio,
-      reason: `${matches}/${window.length} últimos dígitos foram ${config.strategy.parity === "even" ? "pares" : "ímpares"}`
-    };
+  const d = diagnostics(window);
+  if (d.volatilityPips < config.strategy.minimumVolatilityPips / 4) return null;
+
+  if (config.strategy.kind === "momentum") {
+    if (d.directionRatio < config.strategy.threshold || d.efficiency < 0.70) return null;
+    const side = d.displacement > 0 ? "buy" : "sell";
+    return { side, confidence: Math.min(0.99, (d.directionRatio + d.efficiency) / 2), reason: "Sequência direcional eficiente com spread aprovado" };
   }
 
-  const moves = window.slice(1).map((tick, index) => tick.price - window[index].price);
-  const upRatio = moves.filter((move) => move > 0).length / Math.max(1, moves.length);
-  const first = window[0].price;
-  const last = window.at(-1)!.price;
-  const displacement = (last - first) / first;
-  const pathLength = moves.reduce((sum, move) => sum + Math.abs(move), 0);
-  const efficiency = pathLength ? Math.abs(last - first) / pathLength : 0;
-  const lagProduct = moves.slice(1).reduce((sum, move, index) => sum + move * moves[index], 0);
-  const moveEnergy = moves.reduce((sum, move) => sum + move * move, 0);
-  const serialCorrelation = moveEnergy ? lagProduct / moveEnergy : 0;
-  const regimeWindow = ticks.slice(-config.strategy.tickWindow * 3);
-  const regimeMoves = regimeWindow.slice(1).map((tick, index) => tick.price - regimeWindow[index].price);
-  const regimePath = regimeMoves.reduce((sum, move) => sum + Math.abs(move), 0);
-  const regimeEfficiency = regimePath && regimeWindow.length > 1
-    ? Math.abs(regimeWindow.at(-1)!.price - regimeWindow[0].price) / regimePath
-    : 1;
+  if (config.strategy.kind === "mean-reversion") {
+    const average = mean(d.prices);
+    const deviation = stdev(d.prices);
+    const z = deviation ? (d.prices.at(-1)! - average) / deviation : 0;
+    if (Math.abs(z) < config.strategy.threshold || d.efficiency > 0.38 || d.serialCorrelation > 0.12) return null;
+    return { side: z > 0 ? "sell" : "buy", confidence: Math.min(0.99, Math.abs(z) / 2.5), reason: `Desvio de ${Math.abs(z).toFixed(2)}σ em regime lateral` };
+  }
 
-  if (config.platform === "capital" && Math.max(upRatio, 1 - upRatio) >= config.strategy.threshold && efficiency < 0.24) {
-    return { side: upRatio > 0.5 ? "sell" : "buy", confidence: Math.max(upRatio, 1 - upRatio), reason: "Reversão em regime lateral confirmado" };
+  if (config.strategy.kind === "breakout") {
+    const split = Math.max(8, Math.floor(d.prices.length * 0.7));
+    const base = d.prices.slice(0, split);
+    const trigger = d.prices.slice(split);
+    const baseMoves = base.slice(1).map((price, index) => price - base[index]);
+    const triggerMoves = trigger.slice(1).map((price, index) => price - trigger[index]);
+    const baseVol = stdev(baseMoves);
+    const triggerVol = stdev(triggerMoves);
+    const ceiling = Math.max(...base);
+    const floor = Math.min(...base);
+    const lastPrice = trigger.at(-1)!;
+    const directional = triggerMoves.filter((move) => Math.sign(move) === Math.sign(lastPrice - base.at(-1)!)).length / Math.max(triggerMoves.length, 1);
+    if (triggerVol < baseVol * 1.18 || directional < config.strategy.threshold || (lastPrice <= ceiling && lastPrice >= floor)) return null;
+    return { side: lastPrice > ceiling ? "buy" : "sell", confidence: Math.min(0.99, directional), reason: "Rompimento após compressão com expansão de volatilidade" };
   }
-  if (config.platform === "ctrader" && Math.max(upRatio, 1 - upRatio) >= config.strategy.threshold && efficiency > 0.70) {
-    return { side: upRatio > 0.5 ? "buy" : "sell", confidence: Math.max(upRatio, 1 - upRatio), reason: "Momentum confirmado por sequência eficiente" };
-  }
-  const normalized = Math.abs(displacement) * 10000;
-  if (config.platform === "oanda" && regimeWindow.length === config.strategy.tickWindow * 3 && normalized >= config.strategy.threshold && efficiency < 0.22 && regimeEfficiency < 0.20 && serialCorrelation < -0.15) {
-    return { side: displacement > 0 ? "sell" : "buy", confidence: Math.min(0.99, normalized), reason: "Retorno à média em regime lateral" };
-  }
-  return null;
+
+  const fast = ema(d.prices, 7);
+  const slow = ema(d.prices, 18);
+  const trend = fast - slow;
+  const recent = d.moves.slice(-4);
+  const resumed = Math.sign(recent.at(-1) ?? 0) === Math.sign(trend);
+  const pullbackMoves = recent.slice(0, -1).filter((move) => Math.sign(move) === -Math.sign(trend)).length;
+  const trendStrength = Math.abs(trend) / Math.max(stdev(d.prices), pip / 10);
+  if (!resumed || pullbackMoves < 2 || d.efficiency < 0.35 || trendStrength < config.strategy.threshold) return null;
+  return { side: trend > 0 ? "buy" : "sell", confidence: Math.min(0.99, trendStrength), reason: "Retomada após retração em tendência curta confirmada" };
 }

@@ -1,52 +1,43 @@
-import { BotConfig, Platform } from "./types";
+import { BotConfig, BotId, ConnectionReadiness } from "./types";
 
-export const platformMeta: Record<Platform, { color: string; short: string }> = {
-  deriv: { color: "#ff5a61", short: "DV" },
-  capital: { color: "#00d49c", short: "CP" },
-  ctrader: { color: "#36a3ff", short: "CT" },
-  oanda: { color: "#ffb454", short: "OA" }
+export const botMeta: Record<BotId, { color: string; number: string }> = {
+  microflow: { color: "#39d6b4", number: "01" },
+  "range-scout": { color: "#55a7ff", number: "02" },
+  "squeeze-breakout": { color: "#f5b85a", number: "03" },
+  "trend-pullback": { color: "#b98cff", number: "04" }
 };
 
-const risk = {
-  dailyStop: 50,
-  maxDrawdown: 12,
-  maxConcurrent: 1,
-  cooldownSeconds: 8,
-  stake: 2,
-  maxStake: 5
-};
+const risk = { dailyStop: 20, maxDrawdown: 4, maxConcurrent: 1, cooldownSeconds: 45, riskPerTrade: 0.5, maxRiskPerTrade: 1 };
+
+export const defaultReadiness: ConnectionReadiness = { approval: false, oauth: false, demoValidated: false, liveUnlocked: false };
 
 export const defaultConfigs: BotConfig[] = [
   {
-    platform: "deriv",
-    name: "Deriv Digits",
-    description: "Referência par/ímpar conservadora; só atua sob viés estatístico forte.",
-    balance: 10000,
+    id: "microflow", name: "Microflow Momentum", shortName: "Momentum",
+    description: "Continuação curta quando a sequência de ticks é direcional e eficiente.",
+    hypothesis: "Configuração preservada: EURUSD, janela 16, confiança 0,66 e saída em 5 ticks.", balance: 1000,
     risk: { ...risk },
-    strategy: { symbol: "R_100", tickWindow: 40, threshold: 0.75, holdTicks: 1, parity: "even" }
+    strategy: { kind: "momentum", symbol: "EURUSD", tickWindow: 16, threshold: 0.66, holdTicks: 5, maxSpreadPips: 1.2, stopLossPips: 2.4, takeProfitPips: 2.8, minimumVolatilityPips: 0.9 }
   },
   {
-    platform: "capital",
-    name: "Capital Pulse",
-    description: "Reversão curta com filtro para excluir tendências persistentes.",
-    balance: 10000,
-    risk: { ...risk },
-    strategy: { symbol: "EURUSD", tickWindow: 18, threshold: 0.64, holdTicks: 4, parity: "even" }
+    id: "range-scout", name: "Range Scout", shortName: "Reversão",
+    description: "Retorno à média após desvio extremo, somente em mercado lateral e com spread estreito.",
+    hypothesis: "Busca deslocamentos de 1,55 desvios-padrão, autocorrelação negativa e baixa eficiência direcional.", balance: 1000,
+    risk: { ...risk, cooldownSeconds: 60 },
+    strategy: { kind: "mean-reversion", symbol: "EURUSD", tickWindow: 28, threshold: 1.55, holdTicks: 7, maxSpreadPips: 1.0, stopLossPips: 2.2, takeProfitPips: 2.2, minimumVolatilityPips: 1.1 }
   },
   {
-    platform: "ctrader",
-    name: "cTrader Microflow",
-    description: "Momentum de microestrutura apenas em movimentos eficientes.",
-    balance: 10000,
-    risk: { ...risk },
-    strategy: { symbol: "EURUSD", tickWindow: 16, threshold: 0.66, holdTicks: 5, parity: "even" }
+    id: "squeeze-breakout", name: "Squeeze Breakout", shortName: "Rompimento",
+    description: "Rompimento após compressão de volatilidade, confirmado por expansão e direção dos ticks.",
+    hypothesis: "Exige compressão prévia e fechamento além da faixa recente para reduzir entradas no ruído.", balance: 1000,
+    risk: { ...risk, cooldownSeconds: 75 },
+    strategy: { kind: "breakout", symbol: "EURUSD", tickWindow: 24, threshold: 0.70, holdTicks: 8, maxSpreadPips: 1.2, stopLossPips: 2.6, takeProfitPips: 3.4, minimumVolatilityPips: 1.2 }
   },
   {
-    platform: "oanda",
-    name: "OANDA Tick Edge",
-    description: "Retorno à média com detecção de regime lateral.",
-    balance: 10000,
-    risk: { ...risk },
-    strategy: { symbol: "EUR_USD", tickWindow: 20, threshold: 0.68, holdTicks: 6, parity: "even" }
+    id: "trend-pullback", name: "Trend Pullback", shortName: "Retração",
+    description: "Entrada na retomada de uma tendência curta após uma retração controlada.",
+    hypothesis: "Combina inclinação rápida/lenta, eficiência de trajetória e retomada no último tick.", balance: 1000,
+    risk: { ...risk, cooldownSeconds: 60 },
+    strategy: { kind: "pullback", symbol: "EURUSD", tickWindow: 32, threshold: 0.58, holdTicks: 7, maxSpreadPips: 1.1, stopLossPips: 2.5, takeProfitPips: 3.1, minimumVolatilityPips: 1.0 }
   }
 ];

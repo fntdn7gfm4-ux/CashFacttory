@@ -1,30 +1,27 @@
-import { PaperAdapter } from "./base";
-import { Platform } from "../types";
+import { CTraderPaperAdapter, TradingAdapter } from "./base";
+import { BotId, TradingMode } from "../types";
 
-class DerivAdapter extends PaperAdapter { readonly platform = "deriv" as const; }
-class CapitalAdapter extends PaperAdapter { readonly platform = "capital" as const; }
-class CTraderAdapter extends PaperAdapter { readonly platform = "ctrader" as const; }
-class OandaAdapter extends PaperAdapter { readonly platform = "oanda" as const; }
+class PaperStrategyAdapter extends CTraderPaperAdapter {}
 
-export function createAdapter(platform: Platform): PaperAdapter {
-  const adapters = {
-    deriv: DerivAdapter,
-    capital: CapitalAdapter,
-    ctrader: CTraderAdapter,
-    oanda: OandaAdapter
-  };
-  const Adapter = adapters[platform];
-  return new Adapter();
+export const ctraderEndpoints = {
+  demo: "wss://demo.ctraderapi.com:5036",
+  live: "wss://live.ctraderapi.com:5036",
+  oauth: "https://openapi.ctrader.com/apps/auth"
+} as const;
+
+export function createAdapter(_botId: BotId, mode: TradingMode = "paper", executionBridgeReady = false): TradingAdapter {
+  if (mode !== "paper" && !executionBridgeReady) {
+    throw new Error(`Modo ${mode} bloqueado: aprovação, OAuth e executor seguro ainda não foram validados.`);
+  }
+  // The safe local simulator is the only executable adapter before approval.
+  // Demo/live will be supplied by the server-side bridge without changing strategy code.
+  return new PaperStrategyAdapter();
 }
 
-/**
- * External API integration boundary.
- * Live mode is intentionally absent. Demo implementations should be added here,
- * server-side only, after credentials are supplied by the account owner.
- */
-export const demoEndpoints = {
-  deriv: "wss://ws.derivws.com/websockets/v3",
-  capital: "https://demo-api-capital.backend-capital.com",
-  ctrader: "wss://demo.ctraderapi.com:5036",
-  oanda: "https://api-fxpractice.oanda.com"
-} as const;
+export const integrationPolicy = {
+  provider: "cTrader Open API",
+  secretsInBrowser: false,
+  defaultMode: "paper" as const,
+  demoRequires: ["approved-app", "oauth", "demo-account"],
+  liveRequires: ["approved-app", "oauth", "demo-validation", "explicit-live-unlock"]
+};
