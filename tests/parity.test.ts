@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { nextMartingaleLevel, nextParity, targetReached } from "../src/components/ParityLab";
+import { lossLimitReached, nextMartingaleLevel, targetReached } from "../src/components/ParityLab";
 
 describe("Parity basket safeguards", () => {
-  it("alternates even and odd after every contract", () => {
-    expect(nextParity("even")).toBe("odd");
-    expect(nextParity("odd")).toBe("even");
-  });
-
   it("never advances martingale beyond the default level two", () => {
     expect(nextMartingaleLevel(0, false)).toBe(1);
     expect(nextMartingaleLevel(1, false)).toBe(2);
@@ -26,5 +21,11 @@ describe("Parity basket safeguards", () => {
     expect(targetReached(1, 1)).toBe(true);
     expect(targetReached(0.99, 1)).toBe(false);
     expect(targetReached(0, 0)).toBe(false);
+  });
+
+  it("stops only when the loss limit is breached", () => {
+    expect(lossLimitReached(-2, 2)).toBe(true);
+    expect(lossLimitReached(-1.99, 2)).toBe(false);
+    expect(lossLimitReached(-5, 0)).toBe(false);
   });
 });

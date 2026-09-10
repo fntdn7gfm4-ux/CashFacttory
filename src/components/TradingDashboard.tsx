@@ -164,7 +164,7 @@ export function TradingDashboard() {
     });
   };
 
-  const executeParityTrade = async (symbol: string, parity: "even" | "odd", amount: number) => {
+  const executeParityTrade = async (symbol: string, parity: "even" | "odd", amount: number, currency: string) => {
     const socket = executionSocket.current;
     if (selectedMode === "paper") {
       await new Promise((resolve) => window.setTimeout(resolve, 1000));
@@ -178,7 +178,7 @@ export function TradingDashboard() {
       const handler = (event: MessageEvent) => { const data = JSON.parse(String(event.data)); if (data.req_id !== reqId) return; window.clearTimeout(timer); socket.removeEventListener("message", handler); if (data.error) reject(new Error(data.error.message || "Contrato recusado")); else if (data.msg_type === expected) resolve(data); };
       socket.addEventListener("message", handler); socket.send(JSON.stringify({ ...payload, req_id: reqId }));
     });
-    const proposal = await request({ proposal: 1, amount, basis: "stake", contract_type: parity === "even" ? "DIGITEVEN" : "DIGITODD", currency: "USD", duration: 1, duration_unit: "t", underlying_symbol: symbol }, "proposal");
+    const proposal = await request({ proposal: 1, amount, basis: "stake", contract_type: parity === "even" ? "DIGITEVEN" : "DIGITODD", currency, duration: 1, duration_unit: "t", underlying_symbol: symbol }, "proposal");
     const ask = Number(proposal.proposal?.ask_price);
     if (!proposal.proposal?.id || !Number.isFinite(ask) || ask > amount * 1.02) throw new Error("Proposta Par/Ímpar fora do limite de stake");
     const purchase = await request({ buy: proposal.proposal.id, price: ask }, "buy");
