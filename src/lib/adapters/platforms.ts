@@ -19,7 +19,11 @@ export function createAdapter(_botId: BotId, mode: TradingMode = "paper", execut
 }
 
 export const integrationPolicy = {
+  broker: "Deriv",
+  venue: "CT Deriv",
   provider: "cTrader Open API",
+  tradingUrl: "https://ct.deriv.com/",
+  verifiedEurUsdVolume: { minLots: 0.01, maxLots: 20 },
   secretsInBrowser: false,
   defaultMode: "paper" as const,
   demoRequires: ["approved-app", "oauth", "demo-account"],

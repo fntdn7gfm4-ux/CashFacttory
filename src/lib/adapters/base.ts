@@ -33,7 +33,7 @@ export abstract class CTraderPaperAdapter implements TradingAdapter {
     const exit = input.price + (Math.random() - 0.49) * 0.00065;
     const direction = input.side === "buy" ? 1 : -1;
     const costs = Number((input.size * 0.11).toFixed(2));
-    const pnl = Number((direction * (exit - input.price) * 10000 * input.size - costs).toFixed(2));
+    const pnl = Number((direction * (exit - input.price) * 10000 * input.size * 10 - costs).toFixed(2));
     this.balance += pnl;
     return {
       id: crypto.randomUUID(), botId: input.botId, platform: "ctrader", symbol: input.symbol,

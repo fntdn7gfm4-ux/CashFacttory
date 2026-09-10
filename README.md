@@ -1,6 +1,6 @@
-# CashFacttory · cTrader Strategy Lab
+# CashFacttory · Deriv Strategy Lab
 
-Painel com quatro robôs independentes, todos preparados para o **cTrader Open API**. O modo executável atual é PAPER local. Demo e real aparecem no fluxo, mas permanecem tecnicamente bloqueados enquanto a aplicação estiver aguardando aprovação e até a integração OAuth passar pelos testes de segurança.
+Painel com quatro robôs independentes para uma única plataforma visível: **Deriv**. A integração de execução usa a infraestrutura **cTrader Open API** disponível em `ct.deriv.com`. O modo executável atual é PAPER local. Demo e real são selecionáveis na área de conexão, mas permanecem tecnicamente bloqueados enquanto a aplicação estiver aguardando aprovação e até a integração OAuth passar pelos testes de segurança.
 
 ## Quatro estratégias
 
@@ -11,6 +11,8 @@ Painel com quatro robôs independentes, todos preparados para o **cTrader Open A
 
 Todos os robôs incluem spread máximo, volatilidade mínima, stop loss, take profit, limite de risco por operação, stop diário, drawdown máximo, cooldown e limite de simultaneidade. O backtest desconta spread, slippage e custo fixo simulado.
 
+O dimensionamento de EURUSD usa lotes e respeita o mínimo de **0,01 lote** observado na Deriv. Antes de qualquer integração externa, o executor ainda consulta `minVolume`, `maxVolume` e `stepVolume` do símbolo na conta autorizada, porque essas regras podem variar por ativo e conta.
+
 ## Segurança de execução
 
 - PAPER local é o padrão e não requer credenciais.
@@ -20,7 +22,7 @@ Todos os robôs incluem spread máximo, volatilidade mínima, stop loss, take pr
 - Os quatro robôs usam uma única fronteira de integração em `src/lib/adapters/`.
 - A parada de emergência interrompe todos os loops locais imediatamente.
 
-O painel não finge conexão externa: enquanto o executor seguro não estiver configurado, os botões cTrader Demo e cTrader Real apenas mostram as etapas pendentes.
+O painel não finge conexão externa: estar logado em `ct.deriv.com` habilita negociação manual, mas não autoriza o bot. Enquanto o executor seguro não estiver configurado, Deriv Demo e Deriv Real apenas mostram as etapas pendentes.
 
 ## Executar
 
@@ -38,9 +40,9 @@ npm test
 npm run build
 ```
 
-## Integração cTrader depois da aprovação
+## Integração Deriv depois da aprovação
 
-1. Autorizar a conta demo pelo fluxo OAuth 2.0 oficial.
+1. Disponibilizar uma conta demo Deriv compatível e autorizá-la pelo fluxo OAuth 2.0 oficial do cTrader.
 2. Trocar o código de autorização, que expira rapidamente, por access/refresh tokens no servidor.
 3. Autenticar a aplicação e a conta no endpoint demo.
 4. Consultar o símbolo no broker para respeitar `minVolume`, `maxVolume`, `stepVolume`, comissão e horários.

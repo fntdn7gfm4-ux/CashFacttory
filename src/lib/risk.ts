@@ -13,5 +13,6 @@ export function assessRisk(config: BotConfig, runtime: BotRuntime, now = Date.no
 
 export function positionSize(config: BotConfig, balance: number): number {
   const riskBudget = Math.min(config.risk.riskPerTrade, config.risk.maxRiskPerTrade, Math.max(0, balance));
-  return Number((riskBudget / Math.max(config.strategy.stopLossPips, 0.1)).toFixed(3));
+  const rawLots = riskBudget / (Math.max(config.strategy.stopLossPips, 0.1) * 10);
+  return Math.min(20, Math.max(0.01, Number(rawLots.toFixed(2))));
 }
