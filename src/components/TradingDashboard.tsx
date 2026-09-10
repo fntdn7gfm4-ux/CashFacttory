@@ -77,8 +77,15 @@ export function TradingDashboard() {
           const next = await simulateStep(config, previous);
           if (next.orders.length > previous.orders.length && executionMode.current !== "paper") {
             const latest = next.orders[0];
-            await executeOrder(config, latest.side);
-            next.logs = [`${new Date().toLocaleTimeString("pt-BR")} · Ordem ${executionMode.current.toUpperCase()} aceita pela Deriv.`, ...next.logs].slice(0, 40);
+            const result = await executeOrder(config, latest.side);
+            const actualPnl = Number(result.profit);
+            const simulatedPnl = latest.pnl;
+            next.orders[0] = { ...latest, pnl: actualPnl, costs: 0 };
+            next.pnl += actualPnl - simulatedPnl;
+            next.balance += actualPnl - simulatedPnl;
+            next.wins = previous.wins + (actualPnl > 0 ? 1 : 0);
+            next.losses = previous.losses + (actualPnl <= 0 ? 1 : 0);
+            next.logs = [`${new Date().toLocaleTimeString("pt-BR")} · Ordem ${executionMode.current.toUpperCase()} liquidada pela Deriv · ${money(actualPnl)}.`, ...next.logs].slice(0, 40);
           }
           setRuntimes((current) => ({ ...current, [config.id]: next }));
         } catch (error) {
@@ -137,7 +144,23 @@ export function TradingDashboard() {
     const proposal = await request({ proposal: 1, amount, basis: "stake", contract_type: side === "buy" ? "CALL" : "PUT", currency: "USD", duration: Math.max(1, config.strategy.holdTicks), duration_unit: "t", underlying_symbol: config.strategy.symbol }, "proposal");
     const ask = Number(proposal.proposal?.ask_price);
     if (!proposal.proposal?.id || !Number.isFinite(ask) || ask > config.risk.maxRiskPerTrade) throw new Error("Proposta fora do limite de risco");
-    return request({ buy: proposal.proposal.id, price: ask }, "buy");
+    const purchase = await request({ buy: proposal.proposal.id, price: ask }, "buy");
+    const contractId = purchase.buy?.contract_id;
+    if (!contractId) throw new Error("A Deriv não retornou o contrato comprado");
+    return new Promise<{ profit: number }>((resolve, reject) => {
+      const reqId = Math.floor(Math.random() * 1_000_000_000);
+      const timer = window.setTimeout(() => { socket.removeEventListener("message", handler); reject(new Error("Contrato não liquidado dentro do limite")); }, 45000);
+      const handler = (event: MessageEvent) => {
+        const data = JSON.parse(String(event.data));
+        if (data.error && data.req_id === reqId) { window.clearTimeout(timer); socket.removeEventListener("message", handler); reject(new Error(data.error.message || "Falha ao acompanhar contrato")); return; }
+        if (data.msg_type !== "proposal_open_contract" || String(data.proposal_open_contract?.contract_id) !== String(contractId)) return;
+        if (!data.proposal_open_contract?.is_sold) return;
+        window.clearTimeout(timer); socket.removeEventListener("message", handler);
+        resolve({ profit: Number(data.proposal_open_contract.profit || 0) });
+      };
+      socket.addEventListener("message", handler);
+      socket.send(JSON.stringify({ proposal_open_contract: 1, contract_id: contractId, subscribe: 1, req_id: reqId }));
+    });
   };
 
   const selected = configs.find((config) => config.id === view);
