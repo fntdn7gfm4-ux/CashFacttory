@@ -9,8 +9,8 @@ export function initialRuntime(config: BotConfig): BotRuntime {
   return {
     status: "stopped", mode: "paper", connected: true, balance: config.balance, equity: config.balance, pnl: 0,
     wins: 0, losses: 0, drawdown: 0,
-    prices: Array.from({ length: 36 }, (_, index) => ({ time: Date.now() - (36 - index) * 1000, price: 1.085 + Math.sin(index / 3) * 0.00035 + index * 0.000004 })),
-    orders: [], logs: ["PAPER ativo — laboratório Deriv local, sem credenciais e sem ordens externas."], lastTradeAt: 0
+    prices: Array.from({ length: 36 }, (_, index) => ({ time: Date.now() - (36 - index) * 1000, price: 1.085 + Math.sin(index / 3) * 0.00035 + index * 0.000004, source: "synthetic" as const })),
+    orders: [], logs: ["PAPER ativo — feed público direto da Deriv; execução simulada e nenhuma ordem externa."], lastTradeAt: 0
   };
 }
 

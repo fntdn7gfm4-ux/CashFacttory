@@ -36,13 +36,13 @@ export interface BotConfig {
   strategy: StrategyConfig;
 }
 
-export interface Tick { time: number; price: number; bid?: number; ask?: number }
+export interface Tick { time: number; price: number; bid?: number; ask?: number; source?: "deriv-public" | "synthetic" }
 export interface Signal { side: Side; confidence: number; reason: string }
 
 export interface Order {
   id: string;
   botId: BotId;
-  platform: "ctrader";
+  platform: "deriv";
   symbol: string;
   side: Side;
   size: number;
@@ -85,4 +85,4 @@ export interface BacktestResult {
   curve: number[];
 }
 
-export interface ConnectionReadiness { approval: boolean; oauth: boolean; demoValidated: boolean; liveUnlocked: boolean }
+export interface ConnectionReadiness { publicFeed: boolean; oauth: boolean; demoValidated: boolean; liveUnlocked: boolean }

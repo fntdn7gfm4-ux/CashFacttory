@@ -19,11 +19,10 @@ describe("risk engine", () => {
     const config = defaultConfigs[2];
     const runtime = { ...initialRuntime(config), lastTradeAt: Date.now() };
     expect(assessRisk(config, runtime).reason).toBe("Cooldown ativo");
-    const expectedLots = Math.max(0.01, Number((config.risk.riskPerTrade / (config.strategy.stopLossPips * 10)).toFixed(2)));
-    expect(positionSize(config, 1000)).toBe(expectedLots);
+    expect(positionSize(config, 1000)).toBe(config.risk.riskPerTrade);
   });
 
-  it("respects the verified EURUSD CT Deriv minimum volume", () => {
+  it("keeps the configured paper stake positive", () => {
     const config = { ...defaultConfigs[0], risk: { ...defaultConfigs[0].risk, riskPerTrade: 0.01, maxRiskPerTrade: 1 } };
     expect(positionSize(config, 1000)).toBe(0.01);
   });

@@ -1,4 +1,4 @@
-# Estratégias rápidas para cTrader
+# Estratégias rápidas na API direta da Deriv
 
 ## Conclusão executiva
 
@@ -22,7 +22,7 @@ A pesquisa de timing ótimo em processos de reversão à média mostra que custo
 
 O robô divide a janela em base e gatilho. Ele procura uma fase inicial de menor variabilidade, seguida por expansão da volatilidade, predominância direcional e preço além do máximo ou mínimo da base. A entrada acompanha o rompimento; a saída usa horizonte curto, stop e take profit.
 
-Esse desenho evita usar apenas “tocou a máxima”, o que tende a reagir a ruído. Ainda assim, rompimentos são vulneráveis a falsos sinais e slippage. No modo integrado, ordens de mercado podem sofrer execução diferente do preço observado; a própria documentação do cTrader destaca liquidez, latência e preenchimento parcial como riscos de execução.
+Esse desenho evita usar apenas “tocou a máxima”, o que tende a reagir a ruído. Ainda assim, rompimentos são vulneráveis a falsos sinais e slippage. No modo integrado, a compra usa uma proposta de contrato e pode ocorrer em condições diferentes do tick que gerou o sinal; por isso, proposta, preço máximo e disponibilidade precisam ser reconfirmados imediatamente antes da compra.
 
 ## 4. Trend Pullback
 
@@ -30,11 +30,11 @@ O Trend Pullback compara médias exponenciais rápidas e lentas, mede a eficiên
 
 O filtro não transforma uma retração em vantagem garantida. Ele apenas formaliza uma condição reproduzível para paper trading. Quando o mercado perde eficiência, o sinal desaparece.
 
-## Arquitetura cTrader
+## Arquitetura Deriv direta
 
-O cTrader Open API permite receber dados em tempo real, enviar operações e consultar ordens, posições e deals. A documentação recomenda conta demo para desenvolvimento. Ticks históricos são limitados a intervalos de até uma semana por solicitação; bid e ask são campos opcionais em eventos spot, e trendbars ao vivo exigem primeiro uma assinatura de spots. Esses detalhes influenciam a reconciliação e os filtros do executor.
+O WebSocket público da Deriv permite consultar símbolos, contratos, ticks e histórico sem autenticação. O PAPER usa esse canal apenas como fonte de preços. A execução DEMO ou REAL exige uma conta de opções, token OAuth/PAT e um URL WebSocket autenticado por OTP; o próprio URL retornado determina se o ambiente é demo ou real.
 
-O volume mínimo e o incremento dependem do símbolo e do broker. O executor deverá consultar `minVolume`, `maxVolume` e `stepVolume` em vez de assumir que uma posição “de centavos” está disponível. O painel trabalha com orçamento de risco em dólares; a conversão para volume válido acontecerá no servidor após a aprovação.
+O stake mínimo, os contratos disponíveis e o payout dependem do símbolo e da conta. O executor deverá consultar `contracts_for` e obter uma `proposal` válida em vez de assumir que uma operação “de centavos” está disponível. Tokens e URLs OTP não entram no navegador nem nos logs.
 
 ## Resultado do laboratório sintético
 
@@ -44,11 +44,11 @@ Esses números medem coerência do algoritmo sob cenários controlados. Eles nã
 
 ## Critérios antes do modo real
 
-- aprovação do aplicativo;
-- OAuth concluído sem expor Client Secret;
-- autenticação de aplicativo e conta demo;
-- consulta de propriedades do símbolo e margem esperada;
-- reconciliação de ordens, posições e deals;
+- OAuth ou PAT com escopo mínimo, armazenado apenas no servidor;
+- conta demo de opções identificada;
+- URL WebSocket demo emitido por OTP e usado dentro do prazo;
+- consulta de `contracts_for` e `proposal` antes da compra;
+- reconciliação da compra e do contrato aberto;
 - tratamento de rejeição, fill parcial, desconexão e heartbeat;
 - stop loss e take profit validados no servidor;
 - parada de emergência validada com posições abertas;
@@ -57,10 +57,10 @@ Esses números medem coerência do algoritmo sob cenários controlados. Eles nã
 
 ## Fontes
 
-1. Spotware. [cTrader Open API — Getting started](https://help.ctrader.com/open-api/). Acesso em setembro de 2026.
-2. Spotware. [App and account authentication](https://help.ctrader.com/open-api/account-authentication/). Acesso em setembro de 2026.
-3. Spotware. [Attain symbol data](https://help.ctrader.com/open-api/symbol-data/). Acesso em setembro de 2026.
-4. Spotware. [Orders](https://help.ctrader.com/trading-with-ctrader/orders/). Acesso em setembro de 2026.
+1. Deriv. [API overview](https://developers.deriv.com/docs/intro/api-overview/). Acesso em setembro de 2026.
+2. Deriv. [Authentication](https://developers.deriv.com/docs/intro/authentication/). Acesso em setembro de 2026.
+3. Deriv. [Public WebSocket](https://developers.deriv.com/docs/options/ws-public/). Acesso em setembro de 2026.
+4. Deriv. [Authenticated WebSocket via OTP](https://developers.deriv.com/docs/options/websocket/). Acesso em setembro de 2026.
 5. Tim Leung e Xin Li. [Optimal Mean Reversion Trading with Transaction Costs and Stop-Loss Exit](https://arxiv.org/abs/1411.5062). 2015.
 6. Christopher J. Neely e Paul A. Weller. [Intraday Technical Trading in the Foreign Exchange Market](https://fraser.stlouisfed.org/docs/publications/frbsl_wp/1999-016.pdf). Federal Reserve Bank of St. Louis.
 7. Financial Conduct Authority. [Contract for differences](https://www.fca.org.uk/firms/contract-for-differences). Atualizado em junho de 2025.

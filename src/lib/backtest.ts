@@ -20,7 +20,7 @@ export function makeSyntheticTicks(count = 900, initialSeed = 7411, regime: Mark
     price += movement;
     const spreadPips = 0.55 + Math.abs(random) * 0.5;
     const halfSpread = spreadPips * 0.0001 / 2;
-    return { time: index * 1000, price: Number(price.toFixed(5)), bid: Number((price - halfSpread).toFixed(5)), ask: Number((price + halfSpread).toFixed(5)) };
+    return { time: index * 1000, price: Number(price.toFixed(5)), bid: Number((price - halfSpread).toFixed(5)), ask: Number((price + halfSpread).toFixed(5)), source: "synthetic" };
   });
 }
 
