@@ -41,8 +41,11 @@ export function TradingDashboard() {
   const [testing, setTesting] = useState(false);
   const [notice, setNotice] = useState("Configuração segura carregada. Nenhuma ordem externa será enviada.");
   const [selectedMode, setSelectedMode] = useState<TradingMode>("paper");
-  const [readiness] = useState<ConnectionReadiness>(defaultReadiness);
+  const [readiness, setReadiness] = useState<ConnectionReadiness>(defaultReadiness);
+  const [accountSummary, setAccountSummary] = useState<Array<{ type: string; currency: string; balance: number; status: string }>>([]);
   const busy = useRef(new Set<BotId>());
+  const executionSocket = useRef<WebSocket | null>(null);
+  const executionMode = useRef<TradingMode>("paper");
 
   useEffect(() => {
     const stored = safeLoad(localStorage.getItem(storageKey));
@@ -54,12 +57,29 @@ export function TradingDashboard() {
   }, []);
 
   useEffect(() => {
+    fetch("/api/deriv/status", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data) => {
+        setReadiness({ publicFeed: true, oauth: Boolean(data.authenticated), demoValidated: Boolean(data.demoValidated), liveUnlocked: Boolean(data.liveUnlocked) });
+        setAccountSummary(Array.isArray(data.accounts) ? data.accounts : []);
+      })
+      .catch(() => setReadiness(defaultReadiness));
+    return () => executionSocket.current?.close();
+  }, []);
+
+  useEffect(() => {
     const timer = window.setInterval(() => {
       configs.forEach(async (config) => {
         if (runtimes[config.id].status !== "running" || busy.current.has(config.id)) return;
         busy.current.add(config.id);
         try {
-          const next = await simulateStep(config, runtimes[config.id]);
+          const previous = runtimes[config.id];
+          const next = await simulateStep(config, previous);
+          if (next.orders.length > previous.orders.length && executionMode.current !== "paper") {
+            const latest = next.orders[0];
+            await executeOrder(config, latest.side);
+            next.logs = [`${new Date().toLocaleTimeString("pt-BR")} · Ordem ${executionMode.current.toUpperCase()} aceita pela Deriv.`, ...next.logs].slice(0, 40);
+          }
           setRuntimes((current) => ({ ...current, [config.id]: next }));
         } catch (error) {
           const message = error instanceof Error ? error.message : "Falha no feed Deriv";
@@ -78,14 +98,46 @@ export function TradingDashboard() {
   }, [runtimes]);
 
   const setStatus = (id: BotId, status: BotRuntime["status"]) => setRuntimes((all) => ({ ...all, [id]: { ...all[id], status, logs: [`${new Date().toLocaleTimeString("pt-BR")} · Bot ${status === "running" ? "iniciado" : "parado"} pelo operador.`, ...all[id].logs] } }));
-  const emergency = () => { setRuntimes((all) => Object.fromEntries(Object.entries(all).map(([id, runtime]) => [id, { ...runtime, status: "stopped", logs: [`${new Date().toLocaleTimeString("pt-BR")} · PARADA DE EMERGÊNCIA acionada.`, ...runtime.logs] }])) as Record<BotId, BotRuntime>); setNotice("Todos os robôs foram interrompidos."); };
+  const emergency = () => { executionSocket.current?.close(); executionSocket.current = null; executionMode.current = "paper"; setSelectedMode("paper"); setRuntimes((all) => Object.fromEntries(Object.entries(all).map(([id, runtime]) => [id, { ...runtime, status: "stopped", logs: [`${new Date().toLocaleTimeString("pt-BR")} · PARADA DE EMERGÊNCIA acionada.`, ...runtime.logs] }])) as Record<BotId, BotRuntime>); setNotice("Todos os robôs foram interrompidos e a sessão autenticada foi encerrada."); };
   const save = () => { localStorage.setItem(storageKey, JSON.stringify(configs)); setNotice("Configurações salvas com segurança neste dispositivo."); };
   const updateConfig = (id: BotId, path: "risk" | "strategy", field: string, value: string | number) => setConfigs((items) => items.map((item) => item.id === id ? { ...item, [path]: { ...item[path], [field]: value } } : item));
   const runTest = async (config: BotConfig) => { setTesting(true); setBacktest(null); await new Promise((resolve) => window.setTimeout(resolve, 120)); setBacktest(runBacktest(config)); setTesting(false); };
-  const requestMode = (mode: TradingMode) => {
-    setSelectedMode(mode);
-    if (mode === "paper") { setNotice("PAPER selecionado: cotações públicas diretas da Deriv e execução simulada."); return; }
-    setNotice(mode === "demo" ? "DEMO Deriv preparado, mas bloqueado até OAuth/PAT e emissão do URL WebSocket por OTP." : "REAL Deriv preparado, mas bloqueado até OAuth/PAT, OTP, validação completa em demo e desbloqueio explícito.");
+  const requestMode = async (mode: TradingMode) => {
+    if (mode === "paper") { executionSocket.current?.close(); executionSocket.current = null; executionMode.current = "paper"; setSelectedMode("paper"); setNotice("PAPER selecionado: cotações públicas diretas da Deriv e execução simulada."); return; }
+    if (!readiness.oauth) { setNotice("A credencial protegida ainda não foi validada pelo servidor."); return; }
+    let confirmation: string | undefined;
+    if (mode === "live") {
+      if (!readiness.demoValidated || !readiness.liveUnlocked) { setNotice("REAL permanece travado até a validação completa em demo e a liberação do servidor."); return; }
+      confirmation = window.prompt("Operações neste modo usam dinheiro real. Digite ATIVAR REAL para abrir a sessão:") ?? undefined;
+      if (confirmation !== "ATIVAR REAL") { setNotice("Ativação real cancelada. Nenhuma ordem foi enviada."); return; }
+    }
+    setNotice(`Solicitando sessão ${mode.toUpperCase()} de uso único…`);
+    try {
+      const response = await fetch("/api/deriv/session", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode, confirmation }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Sessão recusada");
+      const socket = new WebSocket(data.url);
+      await new Promise<void>((resolve, reject) => { const timer = window.setTimeout(() => reject(new Error("Tempo limite da conexão")), 8000); socket.onopen = () => { window.clearTimeout(timer); resolve(); }; socket.onerror = () => { window.clearTimeout(timer); reject(new Error("Falha no WebSocket autenticado")); }; });
+      executionSocket.current?.close(); executionSocket.current = socket; executionMode.current = mode; setSelectedMode(mode);
+      setNotice(`${mode === "demo" ? "DEMO" : "REAL"} conectado à Deriv. Os robôs usarão proposal antes de cada compra.`);
+    } catch (error) { setNotice(error instanceof Error ? error.message : "Não foi possível abrir a sessão Deriv"); }
+  };
+
+  const executeOrder = async (config: BotConfig, side: "buy" | "sell") => {
+    const socket = executionSocket.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error("Sessão autenticada indisponível");
+    const request = (payload: Record<string, unknown>, expected: string) => new Promise<any>((resolve, reject) => {
+      const reqId = Math.floor(Math.random() * 1_000_000_000);
+      const timer = window.setTimeout(() => { socket.removeEventListener("message", handler); reject(new Error("Deriv não respondeu à ordem")); }, 8000);
+      const handler = (event: MessageEvent) => { const data = JSON.parse(String(event.data)); if (data.req_id !== reqId) return; window.clearTimeout(timer); socket.removeEventListener("message", handler); if (data.error) reject(new Error(data.error.message || "Ordem recusada")); else if (data.msg_type === expected) resolve(data); };
+      socket.addEventListener("message", handler);
+      socket.send(JSON.stringify({ ...payload, req_id: reqId }));
+    });
+    const amount = Math.max(0.35, Math.min(config.risk.riskPerTrade, config.risk.maxRiskPerTrade));
+    const proposal = await request({ proposal: 1, amount, basis: "stake", contract_type: side === "buy" ? "CALL" : "PUT", currency: "USD", duration: Math.max(1, config.strategy.holdTicks), duration_unit: "t", underlying_symbol: config.strategy.symbol }, "proposal");
+    const ask = Number(proposal.proposal?.ask_price);
+    if (!proposal.proposal?.id || !Number.isFinite(ask) || ask > config.risk.maxRiskPerTrade) throw new Error("Proposta fora do limite de risco");
+    return request({ buy: proposal.proposal.id, price: ask }, "buy");
   };
 
   const selected = configs.find((config) => config.id === view);
@@ -113,7 +165,7 @@ export function TradingDashboard() {
       {selected && runtime ? (
         <BotDetail config={selected} runtime={runtime} panel={panel} setPanel={setPanel} setStatus={setStatus} save={save} update={updateConfig} runTest={runTest} backtest={backtest} testing={testing} onBack={() => setView("overview")}/>
       ) : view === "connection" ? (
-        <Connection readiness={readiness} mode={selectedMode} requestMode={requestMode}/>
+        <Connection readiness={readiness} accounts={accountSummary} mode={selectedMode} requestMode={requestMode}/>
       ) : view === "research" ? (
         <Research configs={configs}/>
       ) : (
@@ -150,14 +202,14 @@ function OrderPanel({ runtime, panel, setPanel }: { runtime: BotRuntime; panel: 
   return <section className="table-card"><div className="tabs"><button className={panel === "orders" ? "active" : ""} onClick={() => setPanel("orders")}><History size={15}/>Ordens <span>{runtime.orders.length}</span></button><button className={panel === "logs" ? "active" : ""} onClick={() => setPanel("logs")}><Terminal size={15}/>Logs</button></div>{panel === "orders" ? <div className="table-wrap"><table><thead><tr><th>Horário</th><th>Ativo</th><th>Lado</th><th>Tamanho</th><th>Entrada</th><th>Saída</th><th>Custos</th><th>Resultado</th><th>Modo</th></tr></thead><tbody>{runtime.orders.length ? runtime.orders.map((order) => <tr key={order.id}><td>{new Date(order.closedAt).toLocaleTimeString("pt-BR")}</td><td>{order.symbol}</td><td><span className={`side ${order.side}`}>{order.side.toUpperCase()}</span></td><td>{order.size.toFixed(3)}</td><td>{order.entry.toFixed(5)}</td><td>{order.exit.toFixed(5)}</td><td>{money(order.costs)}</td><td className={order.pnl >= 0 ? "good" : "bad"}>{order.pnl >= 0 ? "+" : ""}{money(order.pnl)}</td><td><span className="paper-tag">PAPER</span></td></tr>) : <tr><td colSpan={9} className="empty"><CircleDollarSign/>Nenhuma ordem. Inicie o robô para testar.</td></tr>}</tbody></table></div> : <div className="logs">{runtime.logs.map((log, index) => <p key={`${log}-${index}`}><span>{String(index + 1).padStart(2, "0")}</span>{log}</p>)}</div>}</section>;
 }
 
-function Connection({ readiness, mode, requestMode }: { readiness: ConnectionReadiness; mode: TradingMode; requestMode: (mode: TradingMode) => void }) {
+function Connection({ readiness, accounts, mode, requestMode }: { readiness: ConnectionReadiness; accounts: Array<{ type: string; currency: string; balance: number; status: string }>; mode: TradingMode; requestMode: (mode: TradingMode) => void }) {
   const steps = [
     ["Feed público direto", readiness.publicFeed, "Cotações Deriv disponíveis sem token; execução permanece PAPER."],
     ["OAuth ou PAT configurado", readiness.oauth, "Token somente no servidor; depois é emitido um WebSocket OTP."],
     ["Validação em demo concluída", readiness.demoValidated, "Proposal, compra, reconciliação e emergência precisam passar."],
     ["Modo real desbloqueado", readiness.liveUnlocked, "Exige uma ação separada e explícita depois dos testes em demo."]
   ] as const;
-  return <div className="connection-layout"><section className="connection-hero"><div className="connection-symbol"><Wifi size={28}/></div><div><span>PLATAFORMA ÚNICA</span><h2>Deriv API direta</h2><p>Os quatro robôs recebem ticks públicos diretamente da Deriv. DEMO e REAL usam OAuth/PAT, OTP e WebSockets separados.</p></div><div className="submitted ready-badge">FEED ATIVO</div></section><section className="mode-card"><div className="card-heading"><div><span>AMBIENTE DE EXECUÇÃO</span><h2>Escolha onde testar</h2></div><ShieldAlert/></div><div className="mode-options">{(["paper", "demo", "live"] as TradingMode[]).map((item) => <button key={item} className={mode === item ? "selected" : ""} onClick={() => requestMode(item)}><span>{item !== "paper" && <LockKeyhole size={13}/>} {modeLabels[item]}</span><small>{item === "paper" ? "Ativo: ticks públicos reais, execução simulada." : item === "demo" ? "Preparado: exige OAuth/PAT + OTP da conta demo." : "Preparado: exige demo validado + desbloqueio explícito."}</small></button>)}</div></section><section className="readiness-card"><div className="card-heading"><div><span>TRAVAS DE SEGURANÇA</span><h2>Caminho até o modo real</h2></div><LockKeyhole/></div><div className="steps">{steps.map(([label, ready, note], index) => <div className={ready ? "ready" : "pending"} key={label}><span>{ready ? <Check size={15}/> : index + 1}</span><div><b>{label}</b><small>{note}</small></div></div>)}</div></section><section className="security-copy"><ShieldAlert/><div><b>Autenticação isolada da interface</b><p>O token nunca fica no navegador. O servidor solicita um endereço WebSocket de uso único por OTP para a conta escolhida; nenhuma compra é enviada enquanto as travas estiverem pendentes.</p></div></section></div>;
+  return <div className="connection-layout"><section className="connection-hero"><div className="connection-symbol"><Wifi size={28}/></div><div><span>PLATAFORMA ÚNICA</span><h2>Deriv API direta</h2><p>Os quatro robôs recebem ticks públicos diretamente da Deriv. DEMO e REAL usam PAT protegido, OTP e WebSockets separados.</p></div><div className="submitted ready-badge">{readiness.oauth ? "AUTENTICADO" : "FEED ATIVO"}</div></section><section className="mode-card"><div className="card-heading"><div><span>AMBIENTE DE EXECUÇÃO</span><h2>Escolha onde operar</h2></div><ShieldAlert/></div><div className="mode-options">{(["paper", "demo", "live"] as TradingMode[]).map((item) => <button key={item} className={mode === item ? "selected" : ""} onClick={() => requestMode(item)}><span>{item !== "paper" && <LockKeyhole size={13}/>} {modeLabels[item]}</span><small>{item === "paper" ? "Ticks públicos reais, execução simulada." : item === "demo" ? "Dinheiro virtual, sessão autenticada por OTP." : "Dinheiro real; exige frase de confirmação a cada sessão."}</small></button>)}</div>{accounts.length > 0 && <div className="execution-note"><b>Contas disponíveis</b><span>{accounts.map((account) => `${account.type.toUpperCase()} · ${money(account.balance)} ${account.currency}`).join("  |  ")}</span></div>}</section><section className="readiness-card"><div className="card-heading"><div><span>TRAVAS DE SEGURANÇA</span><h2>Caminho até o modo real</h2></div><LockKeyhole/></div><div className="steps">{steps.map(([label, ready, note], index) => <div className={ready ? "ready" : "pending"} key={label}><span>{ready ? <Check size={15}/> : index + 1}</span><div><b>{label}</b><small>{note}</small></div></div>)}</div></section><section className="security-copy"><ShieldAlert/><div><b>Autenticação isolada da interface</b><p>O token nunca fica no navegador. Cada sessão recebe um endereço WebSocket de uso único por OTP; toda compra passa por proposal e pelo limite de risco configurado.</p></div></section></div>;
 }
 
 function Research({ configs }: { configs: BotConfig[] }) {
