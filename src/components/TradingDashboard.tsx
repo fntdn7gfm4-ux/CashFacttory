@@ -8,10 +8,11 @@ import { BacktestResult, BotConfig, BotId, BotRuntime, ConnectionReadiness, Trad
 import { Sparkline } from "./Sparkline";
 import { runBacktest } from "@/lib/backtest";
 import { positionSize } from "@/lib/risk";
-import { ParityLab } from "./ParityLab";
+import { ParityCurrency, ParityLab } from "./ParityLab";
 import { MatchContract, MatchCurrency, MatchDiffersLab } from "./MatchDiffersLab";
+import { AccumulatorCurrency, AccumulatorLab, GrowthRate } from "./AccumulatorLab";
 
-type View = "overview" | "connection" | "research" | "parity" | "match-differs" | BotId;
+type View = "overview" | "connection" | "research" | "parity" | "match-differs" | "accumulators" | BotId;
 const storageKey = "cashfacttory:deriv-direct-configs:v6";
 const money = (value: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "USD" }).format(value);
 const pct = (value: number) => `${value.toFixed(1)}%`;
@@ -43,6 +44,7 @@ export function TradingDashboard() {
   const [testing, setTesting] = useState(false);
   const [notice, setNotice] = useState("Configuração segura carregada. Nenhuma ordem externa será enviada.");
   const [selectedMode, setSelectedMode] = useState<TradingMode>("paper");
+  const [haltEpoch, setHaltEpoch] = useState(0);
   const [readiness, setReadiness] = useState<ConnectionReadiness>(defaultReadiness);
   const [accountSummary, setAccountSummary] = useState<Array<{ type: string; currency: string; balance: number; status: string }>>([]);
   const busy = useRef(new Set<BotId>());
@@ -107,7 +109,7 @@ export function TradingDashboard() {
   }, [runtimes]);
 
   const setStatus = (id: BotId, status: BotRuntime["status"]) => setRuntimes((all) => ({ ...all, [id]: { ...all[id], status, logs: [`${new Date().toLocaleTimeString("pt-BR")} · Bot ${status === "running" ? "iniciado" : "parado"} pelo operador.`, ...all[id].logs] } }));
-  const emergency = () => { executionSocket.current?.close(); executionSocket.current = null; executionMode.current = "paper"; setSelectedMode("paper"); setRuntimes((all) => Object.fromEntries(Object.entries(all).map(([id, runtime]) => [id, { ...runtime, status: "stopped", logs: [`${new Date().toLocaleTimeString("pt-BR")} · PARADA DE EMERGÊNCIA acionada.`, ...runtime.logs] }])) as Record<BotId, BotRuntime>); setNotice("Todos os robôs foram interrompidos e a sessão autenticada foi encerrada."); };
+  const emergency = () => { executionSocket.current?.close(); executionSocket.current = null; executionMode.current = "paper"; setSelectedMode("paper"); setHaltEpoch((value) => value + 1); setRuntimes((all) => Object.fromEntries(Object.entries(all).map(([id, runtime]) => [id, { ...runtime, status: "stopped", logs: [`${new Date().toLocaleTimeString("pt-BR")} · PARADA DE EMERGÊNCIA acionada.`, ...runtime.logs] }])) as Record<BotId, BotRuntime>); setNotice("Todos os robôs foram interrompidos e a sessão autenticada foi encerrada."); };
   const save = () => { localStorage.setItem(storageKey, JSON.stringify(configs)); setNotice("Configurações salvas com segurança neste dispositivo."); };
   const updateConfig = (id: BotId, path: "risk" | "strategy", field: string, value: string | number) => setConfigs((items) => items.map((item) => item.id === id ? { ...item, [path]: { ...item[path], [field]: value } } : item));
   const runTest = async (config: BotConfig) => { setTesting(true); setBacktest(null); await new Promise((resolve) => window.setTimeout(resolve, 120)); setBacktest(runBacktest(config)); setTesting(false); };
@@ -165,10 +167,10 @@ export function TradingDashboard() {
     });
   };
 
-  const executeParityTrade = async (symbol: string, parity: "even" | "odd", amount: number, currency: string) => {
+  const executeParityTrade = async (symbol: string, parity: "even" | "odd", amount: number, currency: ParityCurrency, durationTicks: number) => {
     const socket = executionSocket.current;
     if (selectedMode === "paper") {
-      await new Promise((resolve) => window.setTimeout(resolve, 1000));
+      await new Promise((resolve) => window.setTimeout(resolve, durationTicks * 1000));
       const digit = Math.floor(Math.random() * 10);
       return ((digit % 2 === 0) === (parity === "even")) ? amount * 0.88 : -amount;
     }
@@ -179,7 +181,7 @@ export function TradingDashboard() {
       const handler = (event: MessageEvent) => { const data = JSON.parse(String(event.data)); if (data.req_id !== reqId) return; window.clearTimeout(timer); socket.removeEventListener("message", handler); if (data.error) reject(new Error(data.error.message || "Contrato recusado")); else if (data.msg_type === expected) resolve(data); };
       socket.addEventListener("message", handler); socket.send(JSON.stringify({ ...payload, req_id: reqId }));
     });
-    const proposal = await request({ proposal: 1, amount, basis: "stake", contract_type: parity === "even" ? "DIGITEVEN" : "DIGITODD", currency, duration: 1, duration_unit: "t", underlying_symbol: symbol }, "proposal");
+    const proposal = await request({ proposal: 1, amount, basis: "stake", contract_type: parity === "even" ? "DIGITEVEN" : "DIGITODD", currency, duration: durationTicks, duration_unit: "t", underlying_symbol: symbol }, "proposal");
     const ask = Number(proposal.proposal?.ask_price);
     if (!proposal.proposal?.id || !Number.isFinite(ask) || ask > amount * 1.02) throw new Error("Proposta Par/Ímpar fora do limite de stake");
     const purchase = await request({ buy: proposal.proposal.id, price: ask }, "buy");
@@ -222,6 +224,36 @@ export function TradingDashboard() {
     });
   };
 
+  const executeAccumulatorTrade = async (symbol: string, growthRate: GrowthRate, amount: number, currency: AccumulatorCurrency, maxTicks: number) => {
+    const socket = executionSocket.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error(`Conecte o modo ${selectedMode.toUpperCase()} na aba Conexão Deriv antes de iniciar.`);
+    const request = (payload: Record<string, unknown>, expected: string) => new Promise<any>((resolve, reject) => {
+      const reqId = Math.floor(Math.random() * 1_000_000_000);
+      const timer = window.setTimeout(() => { socket.removeEventListener("message", handler); reject(new Error("Deriv não respondeu ao ACCU")); }, 10000);
+      const handler = (event: MessageEvent) => { const data = JSON.parse(String(event.data)); if (data.req_id !== reqId) return; window.clearTimeout(timer); socket.removeEventListener("message", handler); if (data.error) reject(new Error(data.error.message || "ACCU recusado")); else if (data.msg_type === expected) resolve(data); };
+      socket.addEventListener("message", handler); socket.send(JSON.stringify({ ...payload, req_id: reqId }));
+    });
+    const proposal = await request({ proposal: 1, amount, basis: "stake", contract_type: "ACCU", currency, growth_rate: growthRate, underlying_symbol: symbol }, "proposal");
+    const ask = Number(proposal.proposal?.ask_price); const minimum = Number(proposal.proposal?.validation_params?.stake?.min ?? 0);
+    if (!proposal.proposal?.id || !Number.isFinite(ask) || ask > amount * 1.02 || amount < minimum) throw new Error(`Stake ACCU inválida; mínimo informado pela Deriv: ${minimum} ${currency}.`);
+    const purchase = await request({ buy: proposal.proposal.id, price: ask }, "buy"); const contractId = purchase.buy?.contract_id;
+    if (!contractId) throw new Error("Contrato ACCU não retornado pela Deriv");
+    return new Promise<number>((resolve, reject) => {
+      const reqId = Math.floor(Math.random() * 1_000_000_000); const seen = new Set<number>(); let selling = false;
+      const finish = (value: number) => { window.clearTimeout(timer); socket.removeEventListener("message", handler); resolve(value); };
+      const timer = window.setTimeout(() => { socket.removeEventListener("message", handler); reject(new Error("ACCU excedeu a trava de acompanhamento")); }, Math.min(320000, maxTicks * 1500 + 15000));
+      const handler = (event: MessageEvent) => {
+        const data = JSON.parse(String(event.data));
+        if (data.error && data.req_id === reqId) { window.clearTimeout(timer); socket.removeEventListener("message", handler); reject(new Error(data.error.message || "Falha ao acompanhar ACCU")); return; }
+        const open = data.proposal_open_contract; if (data.msg_type !== "proposal_open_contract" || String(open?.contract_id) !== String(contractId)) return;
+        if (open.is_sold) { finish(Number(open.profit || 0)); return; }
+        const tickTime = Number(open.current_spot_time); if (Number.isFinite(tickTime)) seen.add(tickTime);
+        if (seen.size >= maxTicks && !selling) { selling = true; void request({ sell: contractId, price: 0 }, "sell").then((sold) => finish(Number(sold.sell?.sold_for || 0) - ask)).catch((error) => { window.clearTimeout(timer); socket.removeEventListener("message", handler); reject(error); }); }
+      };
+      socket.addEventListener("message", handler); socket.send(JSON.stringify({ proposal_open_contract: 1, contract_id: contractId, subscribe: 1, req_id: reqId }));
+    });
+  };
+
   const selected = configs.find((config) => config.id === view);
   const runtime = selected ? runtimes[selected.id] : null;
 
@@ -234,6 +266,7 @@ export function TradingDashboard() {
         {configs.map((config) => <button key={config.id} className={view === config.id ? "active" : ""} onClick={() => { setView(config.id); setBacktest(null); }}><span className="platform-dot" style={{ color: botMeta[config.id].color }}>{botMeta[config.id].number}</span>{config.shortName}<i className={runtimes[config.id].status === "running" ? "online" : ""}/></button>)}
         <button className={view === "parity" ? "active" : ""} onClick={() => setView("parity")}><Dices size={18}/>Par & Ímpar</button>
         <button className={view === "match-differs" ? "active" : ""} onClick={() => setView("match-differs")}><Hash size={18}/>Match / Differs</button>
+        <button className={view === "accumulators" ? "active" : ""} onClick={() => setView("accumulators")}><Activity size={18}/>Accumulators</button>
         <p>SISTEMA</p>
         <button className={view === "connection" ? "active" : ""} onClick={() => setView("connection")}><Wifi size={18}/>Conexão Deriv</button>
         <button className={view === "research" ? "active" : ""} onClick={() => setView("research")}><FlaskConical size={18}/>Pesquisa</button>
@@ -243,15 +276,17 @@ export function TradingDashboard() {
     </aside>
 
     <main>
-      <header><div><div className="eyebrow">DERIV STRATEGY CONTROL</div><h1>{selected?.name ?? (view === "connection" ? "Conexão Deriv" : view === "research" ? "Pesquisa de estratégias" : view === "parity" ? "Par & Ímpar" : view === "match-differs" ? "Match / Differs" : "Visão geral")}</h1><p>{selected?.description ?? (view === "connection" ? "Uma única conexão segura para todos os robôs." : view === "research" ? "Hipóteses, limitações e fontes que orientam os testes." : view === "parity" ? "Cinco contratos de dígitos com meta conjunta e recuperação limitada." : view === "match-differs" ? "Um bot habilitado por mercado de dígitos, com previsão individual e controles em grupo." : "Quatro estratégias rápidas, uma única plataforma e um único motor de risco.")}</p></div><div className="header-actions"><button className="platform-button" onClick={() => setView("connection")}><Wifi size={14}/><span>PLATAFORMA</span><b>Deriv</b></button></div></header>
+      <header><div><div className="eyebrow">DERIV STRATEGY CONTROL</div><h1>{selected?.name ?? (view === "connection" ? "Conexão Deriv" : view === "research" ? "Pesquisa de estratégias" : view === "parity" ? "Par & Ímpar" : view === "match-differs" ? "Match / Differs" : view === "accumulators" ? "Accumulators" : "Visão geral")}</h1><p>{selected?.description ?? (view === "connection" ? "Uma única conexão segura para todos os robôs." : view === "research" ? "Hipóteses, limitações e fontes que orientam os testes." : view === "parity" ? "Um bot por mercado EVEN/ODD, com previsões individuais e controles em grupo." : view === "match-differs" ? "Um bot habilitado por mercado de dígitos, com previsão individual e controles em grupo." : view === "accumulators" ? "Um bot por mercado ACCU confirmado, com crescimento individual e saída máxima." : "Quatro estratégias rápidas, uma única plataforma e um único motor de risco.")}</p></div><div className="header-actions"><button className="platform-button" onClick={() => setView("connection")}><Wifi size={14}/><span>PLATAFORMA</span><b>Deriv</b></button></div></header>
       <div className="notice"><ShieldAlert size={15}/><span>{notice}</span><button aria-label="Fechar aviso" onClick={() => setNotice("")}><X size={14}/></button></div>
 
       {selected && runtime ? (
         <BotDetail config={selected} runtime={runtime} panel={panel} setPanel={setPanel} setStatus={setStatus} save={save} update={updateConfig} runTest={runTest} backtest={backtest} testing={testing} onBack={() => setView("overview")}/>
       ) : view === "parity" ? (
-        <ParityLab mode={selectedMode} trade={executeParityTrade}/>
+        <ParityLab key={`parity-${selectedMode}-${haltEpoch}`} mode={selectedMode} trade={executeParityTrade}/>
       ) : view === "match-differs" ? (
-        <MatchDiffersLab mode={selectedMode} trade={executeMatchTrade}/>
+        <MatchDiffersLab key={`match-${selectedMode}-${haltEpoch}`} mode={selectedMode} trade={executeMatchTrade}/>
+      ) : view === "accumulators" ? (
+        <AccumulatorLab key={`accu-${selectedMode}-${haltEpoch}`} mode={selectedMode} trade={executeAccumulatorTrade}/>
       ) : view === "connection" ? (
         <Connection readiness={readiness} accounts={accountSummary} mode={selectedMode} requestMode={requestMode}/>
       ) : view === "research" ? (

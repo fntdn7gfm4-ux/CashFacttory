@@ -1,123 +1,75 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Play, Save, ShieldAlert, Square, Target, TriangleAlert } from "lucide-react";
+import { Dices, Play, RefreshCw, ShieldAlert, Square, Target, ToggleLeft, ToggleRight, TriangleAlert } from "lucide-react";
 import { TradingMode } from "@/lib/types";
 
-type Parity = "even" | "odd";
-type Currency = "USD" | "EUR" | "GBP" | "AUD" | "BTC" | "ETH";
-type Row = { id: number; symbol: string; parity: Parity; level: number; pnl: number; trades: number; wins: number; last: string };
-
-// Confirmado no endpoint público ticks_history da Deriv: contratos de dígitos (DIGITEVEN/DIGITODD)
-// só existem na família Volatility Index. Boom/Crash, Step e Jump não aceitam esse modelo.
-const markets = [
-  ["R_10", "Volatility 10 Index"],
-  ["R_25", "Volatility 25 Index"],
-  ["R_50", "Volatility 50 Index"],
-  ["R_75", "Volatility 75 Index"],
-  ["R_100", "Volatility 100 Index"],
-  ["1HZ10V", "Volatility 10 (1s)"],
-  ["1HZ15V", "Volatility 15 (1s)"],
-  ["1HZ25V", "Volatility 25 (1s)"],
-  ["1HZ30V", "Volatility 30 (1s)"],
-  ["1HZ50V", "Volatility 50 (1s)"],
-  ["1HZ75V", "Volatility 75 (1s)"],
-  ["1HZ90V", "Volatility 90 (1s)"],
-  ["1HZ100V", "Volatility 100 (1s)"],
-  ["1HZ150V", "Volatility 150 (1s)"],
-  ["1HZ250V", "Volatility 250 (1s)"],
+export type Parity = "even" | "odd";
+export type ParityCurrency = "USD" | "EUR" | "GBP" | "AUD" | "BTC" | "ETH";
+export type ParityRow = { id: number; symbol: string; label: string; parity: Parity; enabled: boolean; level: number; pnl: number; trades: number; wins: number; last: string };
+export const parityMarkets = [
+  ["R_10", "Volatility 10 Index"], ["R_25", "Volatility 25 Index"], ["R_50", "Volatility 50 Index"], ["R_75", "Volatility 75 Index"], ["R_100", "Volatility 100 Index"],
+  ["1HZ10V", "Volatility 10 (1s)"], ["1HZ15V", "Volatility 15 (1s)"], ["1HZ25V", "Volatility 25 (1s)"], ["1HZ30V", "Volatility 30 (1s)"], ["1HZ50V", "Volatility 50 (1s)"],
+  ["1HZ75V", "Volatility 75 (1s)"], ["1HZ90V", "Volatility 90 (1s)"], ["1HZ100V", "Volatility 100 (1s)"], ["1HZ150V", "Volatility 150 (1s)"], ["1HZ250V", "Volatility 250 (1s)"],
 ] as const;
-const defaultMarkets = markets.slice(0, 5);
-const defaultMaxMartingale = 2;
-
-const fiatCurrencies = ["USD", "EUR", "GBP", "AUD"] as const;
-const cryptoDecimals: Record<string, number> = { BTC: 8, ETH: 6 };
-const currencies = [...fiatCurrencies, "BTC", "ETH"] as const;
-const currencyRules: Record<Currency, { minStake: number; step: number; target: number; lossLimit: number }> = {
-  USD: { minStake: 0.35, step: 0.05, target: 1, lossLimit: 2 },
-  EUR: { minStake: 0.30, step: 0.05, target: 1, lossLimit: 2 },
-  GBP: { minStake: 0.30, step: 0.05, target: 1, lossLimit: 2 },
-  AUD: { minStake: 0.50, step: 0.05, target: 1, lossLimit: 2 },
-  BTC: { minStake: 0.000005, step: 0.000001, target: 0.00001, lossLimit: 0.00002 },
-  ETH: { minStake: 0.00014, step: 0.00001, target: 0.00028, lossLimit: 0.00056 },
+const fiat = ["USD", "EUR", "GBP", "AUD"] as const;
+const currencies: ParityCurrency[] = ["USD", "EUR", "GBP", "AUD", "BTC", "ETH"];
+const rules: Record<ParityCurrency, { min: number; step: number; target: number; loss: number; decimals: number }> = {
+  USD: { min: .35, step: .05, target: 1, loss: 2, decimals: 2 }, EUR: { min: .3, step: .05, target: 1, loss: 2, decimals: 2 }, GBP: { min: .3, step: .05, target: 1, loss: 2, decimals: 2 }, AUD: { min: .5, step: .05, target: 1, loss: 2, decimals: 2 },
+  BTC: { min: .000005, step: .000001, target: .00001, loss: .00002, decimals: 8 }, ETH: { min: .00014, step: .00001, target: .00028, loss: .00056, decimals: 6 },
 };
-
-const initialRows = (): Row[] => defaultMarkets.map(([symbol], index) => ({ id: index + 1, symbol, parity: index % 2 ? "odd" : "even", level: 0, pnl: 0, trades: 0, wins: 0, last: "Aguardando" }));
-const money = (value: number, currency: Currency) => (fiatCurrencies as readonly string[]).includes(currency)
-  ? new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(value)
-  : `${value.toFixed(cryptoDecimals[currency] ?? 6)} ${currency}`;
-export const nextMartingaleLevel = (level: number, won: boolean, maxLevel: number = defaultMaxMartingale) => won ? 0 : level >= maxLevel ? 0 : level + 1;
+const money = (v: number, c: ParityCurrency) => (fiat as readonly string[]).includes(c) ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: c }).format(v) : `${v.toFixed(rules[c].decimals)} ${c}`;
+export const nextMartingaleLevel = (level: number, won: boolean, max = 2) => won ? 0 : level >= max ? 0 : level + 1;
 export const targetReached = (profit: number, target: number) => target > 0 && profit >= target;
 export const lossLimitReached = (profit: number, limit: number) => limit > 0 && profit <= -limit;
+export const clampParityDuration = (v: number) => Math.min(10, Math.max(1, Math.trunc(Number.isFinite(v) ? v : 1)));
+export const createParityRows = (): ParityRow[] => parityMarkets.map(([symbol, label], i) => ({ id: i + 1, symbol, label, parity: i % 2 ? "odd" : "even", enabled: true, level: 0, pnl: 0, trades: 0, wins: 0, last: "Aguardando" }));
 
-export function ParityLab({ mode, trade }: { mode: TradingMode; trade: (symbol: string, parity: Parity, amount: number, currency: Currency) => Promise<number> }) {
-  const [rows, setRows] = useState<Row[]>(initialRows);
-  const [target, setTarget] = useState(1);
-  const [lossLimit, setLossLimit] = useState(2);
-  const [baseStake, setBaseStake] = useState(0.35);
-  const [maxMartingale, setMaxMartingale] = useState(defaultMaxMartingale);
-  const [currency, setCurrency] = useState<Currency>("USD");
-  const [running, setRunning] = useState(false);
-  const [notice, setNotice] = useState("Configure a meta, o limite de perda e inicie os cinco robôs.");
-  const active = useRef(false);
-  const total = rows.reduce((sum, row) => sum + row.pnl, 0);
-  const maximumCycleExposure = 5 * baseStake * ((2 ** (maxMartingale + 1)) - 1);
+export function ParityLab({ mode, trade }: { mode: TradingMode; trade: (symbol: string, parity: Parity, amount: number, currency: ParityCurrency, durationTicks: number) => Promise<number> }) {
+  const [rows, setRows] = useState(createParityRows); const [currency, setCurrency] = useState<ParityCurrency>("USD");
+  const [target, setTarget] = useState(1); const [lossLimit, setLossLimit] = useState(2); const [baseStake, setBaseStake] = useState(.35);
+  const [maxMartingale, setMaxMartingale] = useState(2); const [durationTicks, setDurationTicks] = useState(1); const [groupParity, setGroupParity] = useState<Parity>("even");
+  const [running, setRunning] = useState(false); const [notice, setNotice] = useState("Todos os 15 bots estão ligados. Configure a cesta antes de iniciar.");
+  const active = useRef(false); const enabled = useRef(new Set(rows.map(r => r.id))); const loops = useRef(new Set<number>()); const generation = useRef(0);
+  const total = rows.reduce((s, r) => s + r.pnl, 0); const enabledCount = rows.filter(r => r.enabled).length; const maximumExposure = enabledCount * baseStake * (2 ** (maxMartingale + 1) - 1);
 
-  useEffect(() => { active.current = running; }, [running]);
+  useEffect(() => () => { active.current = false; generation.current += 1; }, []);
   useEffect(() => {
     if (!running) return;
-    if (targetReached(total, target)) { active.current = false; setRunning(false); setNotice(`Meta de ${money(target, currency)} alcançada. Os cinco robôs foram parados.`); return; }
-    if (lossLimitReached(total, lossLimit)) { active.current = false; setRunning(false); setNotice(`Limite de perda de ${money(lossLimit, currency)} atingido. Os cinco robôs foram parados.`); return; }
-  }, [running, target, lossLimit, total, currency]);
-
-  const update = (id: number, field: "symbol" | "parity", value: string) => setRows((all) => all.map((row) => row.id === id ? { ...row, [field]: value } as Row : row));
-  const updateCurrency = (value: Currency) => {
-    const rules = currencyRules[value];
-    setCurrency(value); setBaseStake(rules.minStake); setTarget(rules.target); setLossLimit(rules.lossLimit);
-    setNotice(`Valores seguros iniciais carregados para ${value}.`);
-  };
-  const stop = () => { active.current = false; setRunning(false); setNotice("Grupo Par/Ímpar interrompido. Nenhum novo contrato será comprado."); };
-  const reset = () => { stop(); setRows(initialRows()); setNotice("Resultados desta aba zerados."); };
-
-  const cycle = async (seed: Row) => {
-    let current = seed;
-    while (active.current) {
-      const stake = Math.min(baseStake * (2 ** current.level), baseStake * (2 ** maxMartingale));
-      try {
-        let profit: number;
-        if (mode === "paper") {
-          await new Promise((resolve) => window.setTimeout(resolve, 1000));
-          const digit = Math.floor(Math.random() * 10);
-          const won = (digit % 2 === 0) === (current.parity === "even");
-          profit = won ? stake * 0.88 : -stake;
-        } else {
-          profit = await trade(current.symbol, current.parity, stake, currency);
-        }
-        const won = profit > 0;
-        const nextLevel = nextMartingaleLevel(current.level, won, maxMartingale);
-        current = { ...current, level: nextLevel, pnl: current.pnl + profit, trades: current.trades + 1, wins: current.wins + (won ? 1 : 0), last: `${won ? "Ganho" : "Perda"} ${money(profit, currency)} · próximo ${nextLevel}/${maxMartingale}` };
-        setRows((all) => all.map((row) => row.id === current.id ? current : row));
-      } catch (error) {
-        active.current = false; setRunning(false); setNotice(error instanceof Error ? error.message : "Falha na negociação Par/Ímpar"); return;
+    if (targetReached(total, target)) { active.current = false; setRunning(false); setNotice(`Meta de ${money(target, currency)} alcançada. A cesta EVEN/ODD foi parada.`); return; }
+    if (lossLimitReached(total, lossLimit)) { active.current = false; setRunning(false); setNotice(`Limite de perda de ${money(lossLimit, currency)} atingido. A cesta EVEN/ODD foi parada.`); }
+  }, [currency, lossLimit, running, target, total]);
+  const patchRow = (id: number, patch: Partial<ParityRow>) => setRows(all => all.map(r => r.id === id ? { ...r, ...patch } : r));
+  const applyParity = () => { setRows(all => all.map(r => ({ ...r, parity: groupParity }))); setNotice(`${groupParity === "even" ? "PAR" : "ÍMPAR"} aplicado aos 15 bots.`); };
+  const shuffle = () => { setRows(all => all.map(r => ({ ...r, parity: Math.random() < .5 ? "even" : "odd" }))); setNotice("Previsões PAR e ÍMPAR embaralhadas."); };
+  const updateCurrency = (value: ParityCurrency) => { const r = rules[value]; setCurrency(value); setBaseStake(r.min); setTarget(r.target); setLossLimit(r.loss); setNotice(`Valores seguros iniciais carregados para ${value}.`); };
+  async function cycle(seed: ParityRow) {
+    if (loops.current.has(seed.id)) return; loops.current.add(seed.id); const session = generation.current; let current = seed;
+    try {
+      while (active.current && enabled.current.has(current.id)) {
+        const stake = Math.min(baseStake * 2 ** current.level, baseStake * 2 ** maxMartingale); let profit: number;
+        if (mode === "paper") { await new Promise(r => window.setTimeout(r, durationTicks * 1000)); const digit = Math.floor(Math.random() * 10); profit = ((digit % 2 === 0) === (current.parity === "even")) ? stake * .88 : -stake; }
+        else profit = await trade(current.symbol, current.parity, stake, currency, durationTicks);
+        if (session !== generation.current) return;
+        const won = profit > 0; const level = nextMartingaleLevel(current.level, won, maxMartingale);
+        current = { ...current, enabled: enabled.current.has(current.id), level, pnl: current.pnl + profit, trades: current.trades + 1, wins: current.wins + (won ? 1 : 0), last: `${won ? "Ganho" : "Perda"} ${money(profit, currency)} · próximo ${level}/${maxMartingale}` };
+        setRows(all => all.map(r => r.id === current.id ? current : r)); await new Promise(r => window.setTimeout(r, 1000));
       }
-      await new Promise((resolve) => window.setTimeout(resolve, 1000));
-    }
-  };
-
-  const start = () => {
-    if (running) return;
-    if (target <= 0 || baseStake < currencyRules[currency].minStake) { setNotice(`A meta deve ser positiva e a stake mínima em ${currency} é ${money(currencyRules[currency].minStake, currency)}.`); return; }
-    if (lossLimit <= 0) { setNotice("O limite de perda deve ser maior que zero."); return; }
-    if (maxMartingale < 0 || maxMartingale > 5 || !Number.isInteger(maxMartingale)) { setNotice("O martingale máximo deve ser um número inteiro entre 0 e 5."); return; }
-    active.current = true; setRunning(true); setNotice(`${mode.toUpperCase()} ativo: cinco ciclos independentes, intervalo de 1 segundo e martingale máximo ${maxMartingale}.`);
-    rows.forEach((row) => void cycle(row));
-  };
-
-  return <div className="parity-layout">
-    <section className="parity-hero"><div><span>DIGIT EVEN / ODD</span><h2>Cesta Par & Ímpar</h2><p>Cinco robôs operam com a previsão fixa configurada em cada um. A meta de lucro ou o limite de perda encerram somente esta cesta.</p></div><div className="parity-target"><Target/><span>RESULTADO / META</span><b className={total >= 0 ? "good" : "bad"}>{money(total, currency)} / {money(target, currency)}</b></div></section>
-    <section className="parity-controls"><label>Moeda<select value={currency} disabled={running} onChange={(event) => updateCurrency(event.target.value as Currency)}>{currencies.map((value) => <option value={value} key={value}>{value}</option>)}</select></label><label>Meta de lucro<input type="number" min={currencyRules[currency].step} step={currencyRules[currency].step} value={target} onChange={(event) => setTarget(Number(event.target.value))}/></label><label>Limite de perda<input type="number" min={currencyRules[currency].step} step={currencyRules[currency].step} value={lossLimit} onChange={(event) => setLossLimit(Number(event.target.value))}/></label><label>Stake inicial<input type="number" min={currencyRules[currency].minStake} step={currencyRules[currency].step} value={baseStake} onChange={(event) => setBaseStake(Number(event.target.value))}/></label><label>Martingale máximo<input type="number" min="0" max="5" step="1" value={maxMartingale} disabled={running} onChange={(event) => setMaxMartingale(Math.min(5, Math.max(0, Math.trunc(Number(event.target.value)))))} /></label><div><span>AMBIENTE</span><b>{mode.toUpperCase()}</b></div><button className={running ? "stop" : "start"} onClick={running ? stop : start}>{running ? <><Square size={15}/>Parar cesta</> : <><Play size={15}/>Iniciar 5 robôs</>}</button><button className="outline" onClick={reset}><Save size={15}/>Zerar sessão</button></section>
+    } catch (e) { active.current = false; setRunning(false); setNotice(e instanceof Error ? e.message : "Falha na cesta EVEN/ODD"); } finally { loops.current.delete(seed.id); }
+  }
+  const toggleBot = (row: ParityRow) => { const on = !row.enabled; if (on) enabled.current.add(row.id); else enabled.current.delete(row.id); patchRow(row.id, { enabled: on, last: on ? "Habilitado" : "Desligado" }); if (on && running) void cycle({ ...row, enabled: true }); };
+  const stop = () => { active.current = false; generation.current += 1; setRunning(false); setNotice("Cesta EVEN/ODD interrompida. Nenhum novo contrato será comprado."); };
+  const reset = () => { active.current = false; generation.current += 1; setRunning(false); const fresh = createParityRows(); enabled.current = new Set(fresh.map(r => r.id)); setRows(fresh); setNotice("Resultados zerados e todos os bots ligados."); };
+  const start = () => { if (running) return; if (!enabledCount) return setNotice("Ligue ao menos um bot."); if (target <= 0 || lossLimit <= 0 || baseStake < rules[currency].min) return setNotice(`Revise meta, limite e stake mínima de ${money(rules[currency].min, currency)}.`); generation.current += 1; active.current = true; setRunning(true); setNotice(`${mode.toUpperCase()} ativo: ${enabledCount} bots, ${durationTicks} tick${durationTicks === 1 ? "" : "s"} por contrato.`); rows.filter(r => r.enabled).forEach(r => void cycle(r)); };
+  return <div className="match-layout">
+    <section className="match-hero"><div><span>DIGIT EVEN / ODD</span><h2>Mapa completo Par & Ímpar</h2><p>Um bot por mercado compatível, previsão fixa individual e comandos para aplicar ou embaralhar o grupo.</p></div><div className="parity-target"><Target/><span>RESULTADO / META</span><b className={total >= 0 ? "good" : "bad"}>{money(total, currency)} / {money(target, currency)}</b></div></section>
+    <section className="match-controls">
+      <label>Moeda<select value={currency} disabled={running} onChange={e => updateCurrency(e.target.value as ParityCurrency)}>{currencies.map(v => <option key={v}>{v}</option>)}</select></label><label>Meta de lucro<input type="number" min={rules[currency].step} step={rules[currency].step} value={target} onChange={e => setTarget(Number(e.target.value))}/></label><label>Limite de perda<input type="number" min={rules[currency].step} step={rules[currency].step} value={lossLimit} onChange={e => setLossLimit(Number(e.target.value))}/></label><label>Stake inicial<input type="number" min={rules[currency].min} step={rules[currency].step} value={baseStake} onChange={e => setBaseStake(Number(e.target.value))}/></label>
+      <label>Martingale máximo<input type="number" min="0" max="5" value={maxMartingale} disabled={running} onChange={e => setMaxMartingale(Math.min(5, Math.max(0, Math.trunc(Number(e.target.value)))))}/></label><label>Duração (ticks)<input type="number" min="1" max="10" value={durationTicks} disabled={running} onChange={e => setDurationTicks(clampParityDuration(Number(e.target.value)))}/></label><label>Previsão para todos<select value={groupParity} disabled={running} onChange={e => setGroupParity(e.target.value as Parity)}><option value="even">PAR</option><option value="odd">ÍMPAR</option></select></label>
+      <button className="outline" disabled={running} onClick={applyParity}><Target size={15}/>Aplicar a todos</button><button className="outline" disabled={running} onClick={shuffle}><RefreshCw size={15}/>Embaralhar</button><button className={running ? "stop" : "start"} onClick={running ? stop : start}>{running ? <><Square size={15}/>Parar cesta</> : <><Play size={15}/>Iniciar habilitados</>}</button><button className="outline" onClick={reset}><Dices size={15}/>Zerar sessão</button>
+    </section>
     <div className="notice"><ShieldAlert size={15}/><span>{notice}</span></div>
-    <section className="parity-grid">{rows.map((row) => <article key={row.id} style={{ "--accent": ["#39d6b4", "#55a7ff", "#f5b85a", "#b98cff", "#ff7d8f"][row.id - 1] } as React.CSSProperties}><header><span>BOT {String(row.id).padStart(2, "0")}</span><b className={running ? "good" : ""}>{running ? "RODANDO" : "PARADO"}</b></header><label>Mercado<select value={row.symbol} onChange={(event) => update(row.id, "symbol", event.target.value)} disabled={running}>{markets.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label>Previsão fixa<select value={row.parity} onChange={(event) => update(row.id, "parity", event.target.value)} disabled={running}><option value="even">PAR</option><option value="odd">ÍMPAR</option></select></label><div className="parity-stats"><span>P&L<b className={row.pnl >= 0 ? "good" : "bad"}>{money(row.pnl, currency)}</b></span><span>Acerto<b>{row.trades ? `${(row.wins / row.trades * 100).toFixed(1)}%` : "—"}</b></span><span>Martingale<b>{row.level}/{maxMartingale}</b></span></div><p>{row.last}</p></article>)}</section>
-    <section className="risk-warning"><TriangleAlert/><p><b>Limite rígido.</b> A progressão aceita de 0 a 5 recuperações (stake base{maxMartingale > 0 ? ` até ${2 ** maxMartingale}× em ${maxMartingale} ${maxMartingale === 1 ? "passo" : "passos"}` : ""}). A exposição máxima teórica de um ciclo completo dos cinco bots é <strong>{money(maximumCycleExposure, currency)}</strong>. Depois disso volta à stake inicial. A meta positiva ou o limite de perda atingido impedem novas compras desta aba.</p></section>
+    <section className="match-grid">{rows.map(row => <article className={row.enabled ? "" : "disabled"} key={row.id}><header><div><span>BOT {String(row.id).padStart(2, "0")}</span><b>{row.label}</b></div><button className={row.enabled ? "bot-toggle on" : "bot-toggle"} onClick={() => toggleBot(row)}>{row.enabled ? <ToggleRight size={24}/> : <ToggleLeft size={24}/>} {row.enabled ? "LIGADO" : "DESLIGADO"}</button></header><div className="match-fields single"><label>Previsão fixa<select disabled={running || !row.enabled} value={row.parity} onChange={e => patchRow(row.id, { parity: e.target.value as Parity })}><option value="even">PAR</option><option value="odd">ÍMPAR</option></select></label></div><div className="parity-stats"><span>P&L<b className={row.pnl >= 0 ? "good" : "bad"}>{money(row.pnl, currency)}</b></span><span>Acerto<b>{row.trades ? `${(row.wins / row.trades * 100).toFixed(1)}%` : "—"}</b></span><span>Martingale<b>{row.level}/{maxMartingale}</b></span></div><p>{row.last}</p></article>)}</section>
+    <section className="risk-warning"><TriangleAlert/><p><b>Limite de risco.</b> A exposição máxima teórica do ciclo dos {enabledCount} bots ligados é <strong>{money(maximumExposure, currency)}</strong>. A meta ou o limite de perda interrompe somente esta cesta. Resultados não são garantidos.</p></section>
   </div>;
 }

@@ -51,6 +51,7 @@ export function MatchDiffersLab({ mode, trade }: { mode: TradingMode; trade: (sy
   const enabledCount = rows.filter((row) => row.enabled).length;
   const maximumExposure = enabledCount * baseStake * ((2 ** (maxMartingale + 1)) - 1);
 
+  useEffect(() => () => { active.current = false; generation.current += 1; }, []);
   useEffect(() => {
     if (!running) return;
     if (targetReached(total, target)) { active.current = false; setRunning(false); setNotice(`Meta de ${money(target, currency)} alcançada. A cesta MATCH/DIFFERS foi parada.`); return; }
@@ -97,7 +98,7 @@ export function MatchDiffersLab({ mode, trade }: { mode: TradingMode; trade: (sy
     patchRow(row.id, { enabled: turnOn, last: turnOn ? "Habilitado" : "Desligado" });
     if (turnOn && running) void cycle({ ...row, enabled: true });
   };
-  const stop = () => { active.current = false; setRunning(false); setNotice("Cesta MATCH/DIFFERS interrompida. Nenhum novo contrato será comprado."); };
+  const stop = () => { active.current = false; generation.current += 1; setRunning(false); setNotice("Cesta MATCH/DIFFERS interrompida. Nenhum novo contrato será comprado."); };
   const reset = () => { active.current = false; generation.current += 1; setRunning(false); const fresh = createMatchRows(); enabled.current = new Set(fresh.map((row) => row.id)); setRows(fresh); setNotice("Resultados zerados e todos os bots habilitados."); };
   const start = () => {
     if (running) return;

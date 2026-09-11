@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { lossLimitReached, nextMartingaleLevel, targetReached } from "../src/components/ParityLab";
+import { clampParityDuration, createParityRows, lossLimitReached, nextMartingaleLevel, parityMarkets, targetReached } from "../src/components/ParityLab";
 
 describe("Parity basket safeguards", () => {
+  it("creates one enabled bot for each supported EVEN/ODD market", () => {
+    const rows = createParityRows();
+    expect(rows).toHaveLength(parityMarkets.length);
+    expect(rows).toHaveLength(15);
+    expect(rows.every((row) => row.enabled)).toBe(true);
+    expect(clampParityDuration(0)).toBe(1);
+    expect(clampParityDuration(20)).toBe(10);
+  });
   it("never advances martingale beyond the default level two", () => {
     expect(nextMartingaleLevel(0, false)).toBe(1);
     expect(nextMartingaleLevel(1, false)).toBe(2);
